@@ -1,0 +1,570 @@
+/* ==========================================================================
+   Opening sequence (IntroSequence). Self-contained: uses the global brand
+   tokens from styles.css and nothing else.
+   ========================================================================== */
+
+/* ---- Page state while the intro plays --------------------------------- */
+html.intro-lock {
+  overflow: hidden;
+}
+/* Classic scrollbars only (set by useIntro): keep the gutter so releasing the
+   lock causes no layout shift. */
+html.intro-lock.intro-gutter {
+  scrollbar-gutter: stable;
+}
+/* Hold the hero's entrance at its first frame until the overlay leaves. */
+html.intro-playing .hero :is(.line__in, .hero__in, .stage__card, .stage__field, .hero__lime-leaf, .float, .stage__rings i) {
+  animation-play-state: paused;
+}
+/* While the intro card flies into place, the hero's front card waits, at rest. */
+html.intro-flying .stage__card--front {
+  animation: none;
+  visibility: hidden;
+}
+html.intro-flying .hero .float {
+  animation-play-state: paused;
+}
+/* After the hand-off the hero card is already in place: no second entrance. */
+html.intro-landed .stage__card--front {
+  animation: none;
+}
+main:focus {
+  outline: none;
+}
+
+/* ---- Overlay ------------------------------------------------------------ */
+.intro {
+  --kbw: min(760px, 92vw, 92vh);
+  --kbpad: calc(var(--kbw) * 0.03);
+  --kbgap: calc(var(--kbw) * 0.009);
+  --u: calc((var(--kbw) - 2 * var(--kbpad) - 9 * var(--kbgap)) / 10);
+  --pitch: calc(var(--u) + var(--kbgap));
+  --cw: min(440px, 34vw, 44vh);
+
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: hidden;
+  touch-action: none;
+  color: var(--carbon);
+}
+.intro.is-leave {
+  pointer-events: none;
+}
+.intro.is-skipping {
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.intro__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.intro__stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--warm-paper);
+}
+.intro.is-leave .intro__stage {
+  animation: intro-leave 1000ms var(--ease) both;
+}
+@keyframes intro-leave {
+  to {
+    transform: translateY(-100%);
+  }
+}
+
+.intro__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(19, 19, 31, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(19, 19, 31, 0.05) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+.intro__glow {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: min(1100px, 150vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(76, 27, 241, 0.16), rgba(76, 27, 241, 0.05) 55%, transparent);
+  transform: translate(-50%, -50%);
+}
+
+/* ---- Words -------------------------------------------------------------- */
+.intro__words {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: clamp(72px, 11vh, 140px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 0.26em;
+  margin: 0;
+  padding: 0 20px;
+  font-size: clamp(40px, min(7.2vw, 11vh), 112px);
+  font-weight: 500;
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+  word-spacing: 0.09em;
+  text-align: center;
+  transition:
+    opacity 700ms var(--ease),
+    scale 700ms var(--ease);
+}
+.iw--accent {
+  color: var(--tap-violet);
+}
+.iw__rise {
+  display: inline-block;
+  opacity: 0;
+  filter: blur(14px);
+  transform: translateY(0.35em);
+  transition:
+    opacity 650ms var(--ease),
+    filter 650ms var(--ease),
+    transform 800ms var(--ease);
+}
+.iw.is-in .iw__rise {
+  opacity: 1;
+  filter: none;
+  transform: none;
+}
+.iw__bob {
+  display: inline-block;
+}
+.iw.is-in .iw__bob {
+  animation: intro-bob 3.4s ease-in-out var(--b, 0s) infinite;
+}
+@keyframes intro-bob {
+  0%,
+  100% {
+    transform: translateY(3px);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+/* ---- Keyboard ----------------------------------------------------------- */
+.intro__desk {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 54%;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  transition:
+    opacity 700ms var(--ease),
+    scale 700ms var(--ease);
+}
+.intro.is-soft .intro__words,
+.intro.is-soft .intro__desk {
+  opacity: 0.16;
+  scale: 0.97;
+}
+
+.intro-kb-wrap {
+  position: relative;
+  perspective: 1400px;
+  perspective-origin: 50% 0%;
+  opacity: 0;
+  translate: 0 4vh;
+  transition:
+    opacity 600ms var(--ease),
+    translate 900ms var(--ease);
+}
+.intro.is-on .intro-kb-wrap {
+  opacity: 1;
+  translate: none;
+}
+.intro-kb__shadow {
+  position: absolute;
+  left: 10%;
+  right: 4%;
+  top: 30%;
+  height: 52%;
+  border-radius: 50%;
+  background: rgba(19, 19, 31, 0.3);
+  filter: blur(26px);
+  transform: rotate(-9deg);
+}
+.intro-kb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kbgap);
+  width: var(--kbw);
+  padding: var(--kbpad);
+  border-radius: calc(var(--kbw) * 0.028);
+  background: linear-gradient(170deg, #e8e5dc, var(--soft-stone));
+  box-shadow:
+    inset 0 0 0 1px rgba(19, 19, 31, 0.08),
+    0 calc(var(--kbw) * 0.018) 0 #c4c0b2;
+  transform: rotateX(55deg) rotateZ(-14deg);
+  transform-style: preserve-3d;
+}
+.intro-kb__row {
+  display: flex;
+  gap: var(--kbgap);
+  transform-style: preserve-3d;
+}
+.intro-kb__row--1 {
+  padding-left: calc(var(--u) * 0.3);
+}
+.intro-kb__row--2 {
+  padding-left: calc(var(--u) * 0.65);
+}
+.intro-kb__row--3 {
+  justify-content: center;
+}
+.intro-key {
+  position: relative;
+  flex: none;
+  width: var(--u);
+  height: var(--u);
+  border-radius: calc(var(--u) * 0.16);
+  background: #07070d;
+  transform-style: preserve-3d;
+}
+.intro-key--space {
+  width: calc(var(--u) * 5 + var(--kbgap) * 4);
+}
+.intro-key__cap {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  border-radius: inherit;
+  background: linear-gradient(160deg, #2b2b3e, var(--carbon) 62%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transform: translateZ(6px);
+}
+.intro-key__glow {
+  position: absolute;
+  inset: 0;
+  background: var(--signal-lime);
+  opacity: 0;
+}
+.intro-key__legend {
+  position: absolute;
+  left: 18%;
+  top: 14%;
+  font-family: var(--font-mono);
+  font-size: max(7px, calc(var(--u) * 0.2));
+  font-weight: 500;
+  line-height: 1;
+  color: rgba(244, 242, 234, 0.72);
+}
+
+/* ---- Hands -------------------------------------------------------------- */
+.intro-hand {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  width: calc(var(--pitch) * 4.3);
+  transform-origin: 0 0;
+  transition: transform 120ms cubic-bezier(0.3, 0.7, 0.3, 1);
+  will-change: transform;
+  pointer-events: none;
+}
+.intro-hand__dip {
+  opacity: 0;
+  translate: 0 45vh;
+  transition:
+    opacity 500ms var(--ease),
+    translate 800ms var(--ease);
+}
+.intro.is-hands .intro-hand__dip {
+  opacity: 1;
+  translate: none;
+}
+.intro-hand--right .intro-hand__dip {
+  transition-delay: 90ms;
+}
+.intro-hand svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 18px 18px rgba(19, 19, 31, 0.18));
+}
+.intro-hand [data-finger] {
+  transform-box: fill-box;
+}
+.intro-hand [data-finger] rect,
+.intro-hand__palm {
+  fill: var(--soft-stone);
+  stroke: var(--carbon);
+  stroke-width: 2.5;
+}
+.intro-hand__cuff {
+  fill: var(--carbon);
+}
+.intro-hand__accent {
+  fill: var(--tap-violet);
+}
+
+/* ---- Card --------------------------------------------------------------- */
+.intro__card-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  perspective: 1200px;
+  pointer-events: none;
+}
+.intro.is-fade-card .intro__card-layer {
+  opacity: 0;
+  scale: 0.9;
+  transition:
+    opacity 600ms var(--ease),
+    scale 800ms var(--ease);
+}
+.intro__card-fly {
+  width: var(--cw);
+  translate: 0 -8vh;
+  transform-style: preserve-3d;
+}
+.intro__card-zoom,
+.intro__card-rise,
+.intro__card-tumble {
+  transform-style: preserve-3d;
+}
+.intro__card-rise {
+  opacity: 0;
+}
+.intro.is-rise .intro__card-rise {
+  animation: intro-rise 800ms var(--ease) both;
+}
+@keyframes intro-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(70vh);
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(-16px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.intro.is-tumble .intro__card-tumble {
+  animation: intro-tumble 700ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+@keyframes intro-tumble {
+  from {
+    transform: rotateX(0deg);
+  }
+  to {
+    transform: rotateX(360deg);
+  }
+}
+.intro.is-zoom .intro__card-zoom {
+  animation: intro-zoom 650ms var(--ease) both;
+}
+@keyframes intro-zoom {
+  0% {
+    transform: none;
+  }
+  45% {
+    transform: rotateX(7deg) scale(1.22);
+  }
+  100% {
+    transform: scale(1.35);
+  }
+}
+.intro__card-front {
+  position: relative;
+  backface-visibility: hidden;
+}
+.intro__card-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 4.4% / 6.98%;
+  background: linear-gradient(145deg, #222236 0%, var(--carbon) 52%, #0c0c16 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transform: rotateX(180deg);
+  backface-visibility: hidden;
+}
+.intro__sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 4.4% / 6.98%;
+  pointer-events: none;
+}
+.intro__sheen i {
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  left: -60%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  opacity: 0;
+  transform: skewX(-16deg);
+}
+.intro.is-sweep .intro__sheen i {
+  animation: intro-sweep 900ms var(--ease) both;
+}
+@keyframes intro-sweep {
+  from {
+    opacity: 1;
+    transform: translateX(0) skewX(-16deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(440%) skewX(-16deg);
+  }
+}
+.intro__nfc-flash {
+  position: absolute;
+  left: 89%;
+  top: 85%;
+  width: 24%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(200, 255, 74, 0.8), rgba(200, 255, 74, 0));
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.intro.is-sweep .intro__nfc-flash {
+  animation: intro-flash 700ms ease-out 300ms both;
+}
+@keyframes intro-flash {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* ---- Catchphrase -------------------------------------------------------- */
+.intro__phrase {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 8vh + var(--cw) * 0.43 + 40px);
+  margin: 0;
+  padding: 0 20px;
+  font-size: clamp(30px, min(4.6vw, 7.5vh), 72px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.05em;
+  word-spacing: 0.09em;
+  text-align: center;
+  text-wrap: balance;
+}
+.ip {
+  display: inline-block;
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+  clip-path: inset(-0.5em -0.5em 0 -0.5em);
+  vertical-align: top;
+}
+.ip--accent {
+  color: var(--tap-violet);
+}
+.ip__in {
+  display: inline-block;
+  transform: translateY(110%);
+}
+.intro.is-phrase .ip__in {
+  transform: none;
+  transition: transform 700ms var(--ease) calc(var(--w, 0) * 70ms);
+}
+
+/* ---- Controls ----------------------------------------------------------- */
+.intro__controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 3;
+  display: flex;
+  gap: 8px;
+  transition: opacity 400ms ease;
+}
+.intro.is-leave .intro__controls {
+  opacity: 0;
+}
+.intro__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(19, 19, 31, 0.14);
+  border-radius: 2px;
+  background: rgba(244, 242, 234, 0.82);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: var(--carbon);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.intro__btn:hover {
+  border-color: rgba(19, 19, 31, 0.4);
+}
+.intro__btn--skip {
+  border-color: var(--carbon);
+  background: var(--carbon);
+  color: var(--warm-paper);
+}
+.intro__btn--skip:hover {
+  background: #23233a;
+}
+
+/* ---- Small screens ------------------------------------------------------ */
+@media (max-width: 640px) {
+  .intro {
+    --kbw: min(94vw, 92vh);
+    --cw: min(64vw, 40vh);
+  }
+  .intro__words {
+    top: 84px;
+    font-size: 46px;
+  }
+  .intro__phrase {
+    font-size: 34px;
+  }
+  .intro__desk {
+    top: 44%;
+  }
+  .intro__btn span {
+    display: none;
+  }
+}
+
+/* Belt and braces: the intro never plays with reduced motion (see useIntro). */
+@media (prefers-reduced-motion: reduce) {
+  .intro {
+    display: none;
+  }
+}

@@ -1,0 +1,99 @@
+import { useEffect, useState } from 'react'
+import { BrandMark, CTA, MenuIcon } from './shared'
+
+const LINKS = [
+  { href: '#how', label: 'How it works' },
+  { href: '#features', label: 'Features' },
+  { href: '#faq', label: 'FAQ' },
+]
+
+export function Navigation() {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [scrollProgress, setScrollProgress] = useState(0)
+
+  useEffect(() => {
+    let frame = 0
+    const update = () => {
+      frame = 0
+      const max = document.documentElement.scrollHeight - window.innerHeight
+      setScrollProgress(max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0)
+    }
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onScroll)
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', onScroll)
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
+    const onResize = () => window.innerWidth > 980 && setMenuOpen(false)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [menuOpen])
+
+  const close = () => setMenuOpen(false)
+
+  return (
+    <header className="nav-wrap">
+      <div className="container">
+        <nav className="nav" aria-label="Primary">
+          <a className="nav__brand" href="#top" aria-label="Taply — back to top" onClick={close}>
+            <BrandMark variant="logo" alt="Taply" />
+          </a>
+
+          <ul className="nav__links">
+            {LINKS.map((l) => (
+              <li key={l.href}>
+                <a href={l.href}>{l.label}</a>
+              </li>
+            ))}
+          </ul>
+
+          <CTA href="#pricing" variant="violet" className="nav__cta">
+            Get your Taply card
+          </CTA>
+
+          <button
+            type="button"
+            className="nav__toggle"
+            aria-expanded={menuOpen}
+            aria-controls="mobile-menu"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <MenuIcon open={menuOpen} />
+          </button>
+
+          <span className="nav__progress" style={{ transform: `scaleX(${scrollProgress})` }} aria-hidden="true" />
+        </nav>
+
+        <div id="mobile-menu" className={`nav-panel${menuOpen ? ' is-open' : ''}`}>
+          <ul>
+            {LINKS.map((l) => (
+              <li key={l.href}>
+                <a href={l.href} onClick={close}>
+                  {l.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <CTA href="#pricing" variant="violet" onClick={close}>
+            Get your Taply card
+          </CTA>
+        </div>
+      </div>
+    </header>
+  )
+}
