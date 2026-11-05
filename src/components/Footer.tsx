@@ -38,7 +38,7 @@ export function Footer() {
         </div>
 
         <div className="footer__bottom">
-          <p>© 2025 Taply. All rights reserved.</p>
+          <p>© 2026 Taply. All rights reserved.</p>
           <p>Digital identity, made human.</p>
         </div>
       </div>
