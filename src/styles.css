@@ -445,7 +445,7 @@ a {
   height: 2px;
   background: var(--tap-violet);
   transform-origin: left center;
-  transform: scaleX(0);
+  transform: scaleX(var(--progress, 0));
 }
 
 .nav-panel,
@@ -493,7 +493,6 @@ a {
 /* Scroll parallax (useScrollFx sets --py). */
 [data-parallax] {
   translate: 0 var(--py, 0px);
-  will-change: translate;
 }
 
 .hero__inner {
@@ -590,7 +589,6 @@ a {
   width: min(100%, 640px);
   aspect-ratio: 1 / 0.96;
   transition: transform 700ms var(--ease);
-  will-change: transform;
 }
 .stage__field {
   position: absolute;
@@ -1229,7 +1227,6 @@ a {
 .step__text {
   position: relative;
   transition: transform 350ms var(--ease);
-  will-change: transform;
 }
 .step__in:is(:hover, :active, :focus-within) :is(.step__num, .step__title, .step__text),
 .step.is-active :is(.step__num, .step__title, .step__text) {
@@ -1813,9 +1810,7 @@ a {
   line-height: 1.3;
   text-align: left;
   cursor: pointer;
-  transition:
-    color 200ms,
-    padding 450ms var(--ease);
+  transition: color 200ms;
 }
 .acc.is-open .acc__trigger {
   padding-bottom: 12px;
@@ -1860,14 +1855,12 @@ a {
   display: grid;
   grid-template-rows: 0fr;
   visibility: hidden;
-  transition:
-    grid-template-rows 450ms var(--ease),
-    visibility 0s linear 450ms;
 }
+/* Opens and closes at once; FAQSection slides the questions below into
+   place with transforms, and the answer fades in. */
 .acc.is-open .acc__panel {
   grid-template-rows: 1fr;
   visibility: visible;
-  transition-delay: 0s;
 }
 .acc__inner {
   overflow: hidden;

@@ -133,11 +133,6 @@ export function createIntroAudio() {
       return !closed && !!ctx && ctx.state === 'running'
     },
 
-    /** The context's state right now, for diagnostics. */
-    get state(): string {
-      return ctx ? ctx.state : enabled ? 'no-context' : 'muted'
-    },
-
     /** False when the browser has no Web Audio at all. */
     get supported() {
       return !!(window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioCtor }).webkitAudioContext)

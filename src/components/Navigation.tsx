@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BrandMark, CTA, MenuIcon } from './shared'
 
 const LINKS = [
@@ -9,14 +9,17 @@ const LINKS = [
 
 export function Navigation() {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [scrollProgress, setScrollProgress] = useState(0)
+  const progressRef = useRef<HTMLSpanElement>(null)
 
+  // Scroll progress goes straight to a CSS custom property (one rAF per
+  // frame), so scrolling never re-renders the nav.
   useEffect(() => {
     let frame = 0
     const update = () => {
       frame = 0
       const max = document.documentElement.scrollHeight - window.innerHeight
-      setScrollProgress(max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0)
+      const p = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0
+      progressRef.current?.style.setProperty('--progress', p.toFixed(4))
     }
     const onScroll = () => {
       if (!frame) frame = requestAnimationFrame(update)
@@ -78,7 +81,7 @@ export function Navigation() {
             <MenuIcon open={menuOpen} />
           </button>
 
-          <span className="nav__progress" style={{ transform: `scaleX(${scrollProgress})` }} aria-hidden="true" />
+          <span className="nav__progress" ref={progressRef} aria-hidden="true" />
         </nav>
 
         <div id="mobile-menu" className={`nav-panel${menuOpen ? ' is-open' : ''}`}>

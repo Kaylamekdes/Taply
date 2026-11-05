@@ -39,7 +39,33 @@ export function useReveal() {
       { rootMargin: '0px 0px -12% 0px' },
     )
     els.forEach((el) => io.observe(el))
-    return () => io.disconnect()
+
+    // An element can jump from below the screen to above it between two
+    // frames (a fast fling, an anchor jump). The observer never fires then,
+    // because it was "not intersecting" before and after, so on scroll
+    // (passive, once per frame) anything already above the reveal line is
+    // revealed too. Reads first, then writes; stops once all are revealed.
+    let frame = 0
+    const sweep = () => {
+      frame = 0
+      const pending = els.filter((el) => !el.classList.contains('in'))
+      if (!pending.length) return window.removeEventListener('scroll', onScroll)
+      const line = window.innerHeight * 0.88
+      const due = pending.filter((el) => el.getBoundingClientRect().top < line)
+      due.forEach((el) => {
+        el.classList.add('in')
+        io.unobserve(el)
+      })
+    }
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(sweep)
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      io.disconnect()
+      window.removeEventListener('scroll', onScroll)
+      if (frame) cancelAnimationFrame(frame)
+    }
   }, [])
 }
 
@@ -117,6 +143,8 @@ export function useScrollFx() {
       (entries) => {
         for (const e of entries) {
           const el = e.target as HTMLElement
+          // Layer hint only while a parallax element is near the screen.
+          if (el.dataset.parallax !== undefined) el.style.willChange = e.isIntersecting ? 'translate' : ''
           if (e.isIntersecting) visible.add(el)
           else visible.delete(el)
         }
@@ -135,6 +163,7 @@ export function useScrollFx() {
       if (frame) cancelAnimationFrame(frame)
       ;[...parallax, ...rules].forEach((el) => {
         el.style.removeProperty('--py')
+        el.style.removeProperty('will-change')
         el.style.removeProperty('--fill')
       })
     }

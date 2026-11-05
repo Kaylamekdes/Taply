@@ -135,6 +135,8 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
     const root = rootRef.current
     const focusInside = !!root && root.contains(document.activeElement)
     const complete = () => {
+      // Swap in one frame: hide the flown card as the hero's card appears.
+      if (flyRef.current) flyRef.current.style.visibility = 'hidden'
       if (flewRef.current && !skipped) html.classList.add('intro-landed')
       releasePage()
       if (focusInside) {
@@ -205,12 +207,7 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
 
       // One keystroke: everything fires from this single cue.
       let newest: HTMLElement | null = null
-      let logged = false
       const keyDown = (s: Keystroke) => {
-        if (!logged) {
-          logged = true
-          console.debug('[intro] audio at first keystroke:', audio.state)
-        }
         const hand = hands[s.side]
         // The hand has normally just arrived. If frames were dropped and it is
         // still travelling, finish the move now so the fingertip is on the key.
@@ -386,7 +383,6 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
     syncRef.current = sync
     audio.onStateChange(sync)
     audio.start()
-    console.debug('[intro] audio at intro start:', audio.state)
     sync()
     window.addEventListener('pageshow', onPageShow)
     const onKey = (e: KeyboardEvent) => {

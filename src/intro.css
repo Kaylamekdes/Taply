@@ -193,11 +193,9 @@ main:focus {
    the card enters (timings: INTRO_T in hooks/useIntro.ts). */
 .intro.is-dissolve .intro__desk {
   opacity: 0;
-  filter: blur(6px);
   translate: 0 10px;
   transition:
     opacity var(--intro-dissolve, 600ms) var(--ease),
-    filter var(--intro-dissolve, 600ms) var(--ease),
     translate var(--intro-dissolve, 600ms) var(--ease);
 }
 /* Fully gone: hidden, inert and no longer animating. */
@@ -589,17 +587,21 @@ main:focus {
   position: absolute;
   inset: -1px;
   border-radius: inherit;
-  box-shadow: 0 0 0 0 rgba(76, 27, 241, 0.32);
+  /* A violet outline that grows ~7px out and fades (transform + opacity only). */
+  border: 2px solid rgba(76, 27, 241, 0.45);
+  opacity: 0;
   animation: intro-sound-pulse 2.2s ease-out infinite;
   pointer-events: none;
 }
 @keyframes intro-sound-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(76, 27, 241, 0.32);
+    opacity: 1;
+    transform: none;
   }
   70%,
   100% {
-    box-shadow: 0 0 0 7px rgba(76, 27, 241, 0);
+    opacity: 0;
+    transform: scale(var(--ring-x, 1.12), var(--ring-y, 1.35));
   }
 }
 .intro__btn--skip {
@@ -613,6 +615,11 @@ main:focus {
 
 /* ---- Small screens ------------------------------------------------------ */
 @media (max-width: 640px) {
+  /* Icon-only square button: the ring grows evenly. */
+  .intro__btn.is-locked::after {
+    --ring-x: 1.32;
+    --ring-y: 1.32;
+  }
   .intro {
     --kbw: min(94vw, 92vh);
     --cw: min(64vw, 40vh);

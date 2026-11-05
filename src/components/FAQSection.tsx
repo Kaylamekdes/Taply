@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { SectionIntro } from './shared'
 
 const FAQS = [
@@ -46,6 +46,31 @@ const FAQS = [
 
 export function FAQSection() {
   const [openFaq, setOpenFaq] = useState<number | null>(0)
+  const listRef = useRef<HTMLDivElement>(null)
+  const before = useRef<number[] | null>(null)
+
+  // The panel's height changes at once (no height animation); the questions
+  // below slide from where they were to where they now are (transform only),
+  // while the answer fades in.
+  const toggle = (i: number) => {
+    const items = listRef.current ? [...listRef.current.children] : []
+    before.current = items.map((el) => el.getBoundingClientRect().top)
+    setOpenFaq((cur) => (cur === i ? null : i))
+  }
+  useLayoutEffect(() => {
+    const old = before.current
+    before.current = null
+    const list = listRef.current
+    if (!old || !list || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    ;[...list.children].forEach((el, i) => {
+      const dy = old[i] - el.getBoundingClientRect().top
+      if (Math.abs(dy) < 0.5) return
+      el.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], {
+        duration: 450,
+        easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+      })
+    })
+  }, [openFaq])
 
   return (
     <section className="section faq" id="faq">
@@ -62,7 +87,7 @@ export function FAQSection() {
           </p>
         </div>
 
-        <div className="accordion stagger">
+        <div className="accordion stagger" ref={listRef}>
           {FAQS.map((item, i) => {
             const open = openFaq === i
             return (
@@ -74,7 +99,7 @@ export function FAQSection() {
                     className="acc__trigger"
                     aria-expanded={open}
                     aria-controls={`faq-panel-${i}`}
-                    onClick={() => setOpenFaq(open ? null : i)}
+                    onClick={() => toggle(i)}
                   >
                     <span>{item.q}</span>
                     <span className="acc__icon" aria-hidden="true" />
