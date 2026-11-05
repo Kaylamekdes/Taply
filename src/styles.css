@@ -1196,18 +1196,40 @@ a {
   border-left: 1px solid var(--soft-stone);
 }
 .step__in {
+  position: relative;
   height: 100%;
   padding: 36px 36px 48px;
-  transition:
-    transform 350ms var(--ease),
-    background-color 350ms var(--ease);
 }
 .step:first-child .step__in {
   padding-left: 0;
 }
-.step__in:hover {
+/* The white surface is its own layer, so its lift never carries the
+   illustration (.vis) with it. Text is positioned so it paints above it. */
+.step__in::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition:
+    transform 350ms var(--ease),
+    background-color 350ms var(--ease);
+}
+.step__in:hover::before {
   transform: translateY(-6px);
   background: rgba(255, 255, 255, 0.72);
+}
+/* Selected: only the text glides right (transform only, so nothing re-wraps
+   or reflows); the illustration stays put. */
+.step__num,
+.step__title,
+.step__text {
+  position: relative;
+  transition: transform 350ms var(--ease);
+  will-change: transform;
+}
+.step__in:is(:hover, :active, :focus-within) :is(.step__num, .step__title, .step__text),
+.step.is-active :is(.step__num, .step__title, .step__text) {
+  transform: translateX(22px);
 }
 .step__num {
   color: var(--tap-violet);
@@ -2220,15 +2242,6 @@ a {
   .step__in {
     padding-inline: 0;
   }
-  /* Selected: the content moves in from the surface's edge. Translate only,
-     so nothing re-wraps; unselected stays on the page grid. */
-  .step__in > * {
-    transition: translate 350ms var(--ease);
-  }
-  .step__in:is(:hover, :active, :focus-within) > *,
-  .step.is-active .step__in > * {
-    translate: 22px 0;
-  }
 
   .fgrid {
     grid-template-columns: repeat(2, 1fr);
@@ -2571,6 +2584,10 @@ a {
     stroke-dashoffset: 0;
   }
   .cta:hover {
+    transform: none;
+  }
+  .step__in:is(:hover, :active, :focus-within) :is(.step__num, .step__title, .step__text),
+  .step.is-active :is(.step__num, .step__title, .step__text) {
     transform: none;
   }
 }
