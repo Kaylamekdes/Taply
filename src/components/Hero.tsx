@@ -55,7 +55,7 @@ export function Hero() {
       <div className="container hero__inner">
         <div className="hero__copy">
           <p className="eyebrow eyebrow--plain hero__in" style={{ '--i': 0 } as CSSProperties}>
-            <span>NFC smart business card</span>
+            <span>Plastic NFC smart business card</span>
             <span className="eyebrow__rule eyebrow__rule--violet" aria-hidden="true" />
           </p>
           <h1 className="display hero__title">

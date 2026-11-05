@@ -2367,7 +2367,7 @@ a {
     display: none;
   }
   /* Both cards, rotated corners and shadows included, stay 20px+ inside the
-     screen at rest (12px+ at the float and parallax extremes). */
+     screen at rest (14px+ at the float and parallax extremes). */
   .stage__card {
     width: 66%;
   }
@@ -2376,7 +2376,7 @@ a {
     top: 8%;
   }
   .stage__card--front {
-    left: 9%;
+    left: 9.5%;
     top: 45%;
   }
   .hero__band p {
