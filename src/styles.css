@@ -1203,19 +1203,17 @@ a {
 .step:first-child .step__in {
   padding-left: 0;
 }
-/* The white surface is its own layer, so its lift never carries the
-   illustration (.vis) with it. Text is positioned so it paints above it. */
+/* The white surface is its own layer, filling exactly this step's box
+   (between its divider rules, never into a neighbour). Text is positioned so
+   it paints above it. */
 .step__in::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transition:
-    transform 350ms var(--ease),
-    background-color 350ms var(--ease);
+  transition: background-color 350ms var(--ease);
 }
 .step__in:hover::before {
-  transform: translateY(-6px);
   background: rgba(255, 255, 255, 0.72);
 }
 /* Selected: only the text glides right (transform only, so nothing re-wraps
