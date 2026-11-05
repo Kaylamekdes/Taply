@@ -6,9 +6,9 @@ import { ProductCard } from './ProductCard'
 const clamp = (v: number) => Math.max(-1, Math.min(1, v))
 
 const LINES = [
-  { text: 'Make the' },
-  { text: 'first hello' },
-  { text: 'go further.', accent: true },
+  { text: 'Your' },
+  { text: 'business card,' },
+  { text: 'one tap away.', accent: true },
 ]
 
 export function Hero() {
@@ -55,7 +55,7 @@ export function Hero() {
       <div className="container hero__inner">
         <div className="hero__copy">
           <p className="eyebrow eyebrow--plain hero__in" style={{ '--i': 0 } as CSSProperties}>
-            <span>Digital identity, made human</span>
+            <span>NFC smart business card</span>
             <span className="eyebrow__rule eyebrow__rule--violet" aria-hidden="true" />
           </p>
           <h1 className="display hero__title">
@@ -68,7 +68,7 @@ export function Hero() {
             ))}
           </h1>
           <p className="lede hero__lede hero__in" style={{ '--i': 3 } as CSSProperties}>
-            Share your details in one tap, so people can save your contact and stay connected.
+            Tap or scan to open your profile. People save your contact, with no app needed.
           </p>
           <div className="hero__actions hero__in" style={{ '--i': 4 } as CSSProperties}>
             <CTA href="#pricing" variant="violet">

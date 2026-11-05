@@ -88,7 +88,7 @@ export function PricingSection() {
                 <CTA href={ORDER_URL} variant="lime" external>
                   Get your Taply card
                 </CTA>
-                <p className="panel__note">Continue to Taply’s official website to place your order.</p>
+                <p className="panel__note">One-off cost. Update your digital profile anytime at no extra cost, and share it with a tap or scan. No app needed for anyone you meet.</p>
               </div>
             </div>
 
