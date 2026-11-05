@@ -41,6 +41,9 @@ main:focus {
   --pitch: calc((var(--kbw) - 2 * var(--kbpad) + var(--kbgap)) / 11.5);
   --u: calc(var(--pitch) - var(--kbgap));
   --cw: min(440px, 34vw, 44vh);
+  /* One shared offset that pushes the whole stage (words, keyboard, hands,
+     card, catchphrase) down together. The controls don't move. */
+  --intro-offset: 20px;
 
   position: fixed;
   inset: 0;
@@ -80,6 +83,15 @@ main:focus {
   to {
     transform: translateY(-100%);
   }
+}
+
+/* The stage's content layer. The grid stays put; everything else shares one
+   offset with the card layer, so they keep their positions relative to each
+   other. `translate` composes outside the elements' own transforms/scales. */
+.intro__shift {
+  position: absolute;
+  inset: 0;
+  translate: 0 var(--intro-offset);
 }
 
 .intro__grid {
@@ -360,6 +372,7 @@ main:focus {
   place-items: center;
   perspective: 1200px;
   pointer-events: none;
+  translate: 0 var(--intro-offset);
 }
 .intro.is-fade-card .intro__card-layer {
   opacity: 0;
@@ -654,6 +667,7 @@ main:focus {
   .intro {
     --kbw: min(94vw, 92vh);
     --cw: min(64vw, 40vh);
+    --intro-offset: 32px;
   }
   .intro__words {
     top: 118px;
@@ -667,6 +681,52 @@ main:focus {
   }
   .intro__btn span {
     display: none;
+  }
+}
+
+/* Short screens: a smaller push, so nothing reaches the bottom edge. */
+@media (max-height: 700px) {
+  .intro {
+    --intro-offset: 12px;
+  }
+}
+@media (max-width: 640px) and (max-height: 700px) {
+  .intro {
+    --intro-offset: 20px;
+  }
+}
+
+/* Size and place against the small viewport (svh) where supported, so mobile
+   Safari's toolbars never push the keyboard, card or catchphrase off the
+   bottom. Identical to vh wherever the viewport doesn't change size. */
+@supports (height: 1svh) {
+  .intro {
+    --kbw: min(760px, 92vw, 92svh);
+    --cw: min(440px, 34vw, 44svh);
+  }
+  .intro__words {
+    top: clamp(92px, calc(11svh + 20px), 160px);
+    font-size: clamp(40px, min(7.2vw, 11svh), 112px);
+  }
+  .intro__card-fly {
+    translate: 0 -8svh;
+  }
+  .intro__phrase {
+    top: calc(50% - 8svh + var(--cw) * 0.43 + 40px);
+    font-size: clamp(30px, min(4.6vw, 7.5svh), 72px);
+  }
+  @media (max-width: 640px) {
+    .intro {
+      --kbw: min(94vw, 92svh);
+      --cw: min(64vw, 40svh);
+    }
+    .intro__words {
+      top: 118px;
+      font-size: 46px;
+    }
+    .intro__phrase {
+      font-size: 34px;
+    }
   }
 }
 

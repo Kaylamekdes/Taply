@@ -433,6 +433,8 @@ function IntroOverlay({ audio, onDone }: { audio: IntroAudio; onDone: () => void
 
       <div className="intro__stage" ref={stageRef} aria-hidden="true">
         <span className="intro__grid" />
+        {/* Everything on the stage moves together by --intro-offset (intro.css). */}
+        <div className="intro__shift">
         <span className="intro__glow" />
 
         <p className="intro__words">
@@ -489,6 +491,7 @@ function IntroOverlay({ audio, onDone }: { audio: IntroAudio; onDone: () => void
             </span>
           ))}
         </p>
+        </div>
       </div>
 
       <div className="intro__card-layer" aria-hidden="true">
