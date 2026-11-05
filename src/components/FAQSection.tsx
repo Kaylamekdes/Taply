@@ -34,6 +34,14 @@ const FAQS = [
     q: 'Can I use the card for international networking?',
     a: 'Yes, your profile supports up to 12 languages.',
   },
+  {
+    q: 'How long does it take to get my card?',
+    a: 'Your digital profile is designed to your liking within hours. Once you approve the final digital mockup, printing the physical card takes 2 days.',
+  },
+  {
+    q: 'What are the payment terms?',
+    a: 'Pay 50% to secure your order, then the remaining 50% before dispatch, once your card is complete.',
+  },
 ]
 
 export function FAQSection() {
