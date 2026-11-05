@@ -14,6 +14,11 @@
   --font-sans: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
   --font-mono: 'DM Mono', ui-monospace, monospace;
   --ink-soft: rgba(19, 19, 31, 0.76);
+
+  /* One side margin for the whole page: the container, the nav (inside a
+     container) and any section that pads itself from the page edge. */
+  --gutter: clamp(20px, 4vw, 64px);
+  --max: 1280px;
 }
 
 *,
@@ -95,7 +100,7 @@ a {
    Layout + type utilities
    ========================================================================== */
 .container {
-  width: min(100% - 40px, 1280px);
+  width: min(100% - 2 * var(--gutter), var(--max));
   margin-inline: auto;
 }
 
@@ -1500,10 +1505,12 @@ a {
 }
 .pstage__card {
   position: absolute;
-  left: -3%;
+  /* The -10deg turn widens a 54% card by ~2.6% each side; this keeps its
+     rotated corners 28px inside the stage's left edge. */
+  left: calc(2.6% + 28px);
   bottom: 7%;
   z-index: 3;
-  width: 62%;
+  width: 54%;
   transform: rotate(-10deg);
 }
 /* Profile stage: field grows, phone rises, rows cascade, Save pulses once. */
@@ -1692,16 +1699,18 @@ a {
 }
 .panel__card {
   position: absolute;
-  width: 64%;
+  width: 58%;
 }
+/* Rotated corners included, both cards stay 32px+ inside the visual: a 58%
+   card turned 12-14deg is ~64-65% wide, centred on its box. */
 .panel__card--rear {
-  left: 30%;
+  left: calc(38.5% - 32px);
   top: 14%;
   z-index: 1;
   transform: rotate(14deg);
 }
 .panel__card--front {
-  left: 7%;
+  left: calc(3.2% + 32px);
   top: 42%;
   z-index: 2;
   transform: rotate(-12deg);
@@ -1883,6 +1892,9 @@ a {
    07 — Real-world use
    ========================================================================== */
 .real {
+  /* 100cqw below is this section's width (the page width without a
+     scrollbar), so the copy ends exactly where the container does. */
+  container-type: inline-size;
   display: grid;
   grid-template-columns: 1fr 1fr;
   min-height: 780px;
@@ -1920,7 +1932,7 @@ a {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 120px max(28px, calc((100vw - 1280px) / 2 + 20px)) 120px 72px;
+  padding: 120px max(var(--gutter), (100cqw - var(--max)) / 2) 120px 72px;
 }
 .real__copy .h2 {
   font-size: clamp(42px, 4.9vw, 70px);
@@ -2305,7 +2317,7 @@ a {
     min-height: 480px;
   }
   .real__copy {
-    padding: 80px 20px;
+    padding: 80px var(--gutter);
   }
 
   .footer__grid {
@@ -2320,8 +2332,8 @@ a {
    Mobile
    ========================================================================== */
 @media (max-width: 640px) {
-  .container {
-    width: min(100% - 28px, 1280px);
+  :root {
+    --gutter: 14px;
   }
   .section {
     padding-block: 82px;
