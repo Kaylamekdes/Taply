@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import '../intro.css'
 import { ProductCard } from './ProductCard'
-import { INTRO_SHOULD_PLAY, releasePage, setPageInert, useIntroTimeline } from '../hooks/useIntro'
+import { INTRO_SHOULD_PLAY, INTRO_T, releasePage, setPageInert, useIntroTimeline } from '../hooks/useIntro'
 import type { Cue } from '../hooks/useIntro'
 import { createIntroAudio } from '../hooks/introAudio'
 
@@ -57,18 +57,8 @@ const PHRASE = [
   { w: 'go', accent: true }, { w: 'further.', accent: true },
 ]
 
-// Timeline (ms)
-const T = {
-  hands: 150,
-  rise: 3500,
-  tumble: 4250,
-  soften: 4900,
-  zoom: 4950,
-  sweep: 5050,
-  phrase: 5500,
-  leave: 6600,
-  done: 7600,
-}
+// Timeline (ms): shared constants in hooks/useIntro.ts.
+const T = INTRO_T
 
 // ---------------------------------------------------------------- hands
 // SVG units. Right hand; the left hand is mirrored about x = 54.
@@ -256,6 +246,13 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
         add(at, () => root.querySelector(`[data-word="${i}"]`)?.classList.add('is-in')),
       )
 
+      // Keyboard and hands dissolve out on their own, then stop entirely.
+      phase(T.dissolve, 'is-dissolve')
+      add(T.gone, () => {
+        root.classList.add('is-desk-gone')
+        root.querySelector('.intro__desk')?.getAnimations({ subtree: true }).forEach((a) => a.cancel())
+      })
+
       // Card
       add(T.rise, () => {
         root.classList.add('is-rise')
@@ -346,7 +343,7 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="intro" ref={rootRef}>
+    <div className="intro" ref={rootRef} style={{ '--intro-dissolve': `${T.dissolveMs}ms` } as CSSProperties}>
       <p className="intro__sr" aria-live="polite" ref={liveRef} />
 
       <div className="intro__stage" ref={stageRef} aria-hidden="true">

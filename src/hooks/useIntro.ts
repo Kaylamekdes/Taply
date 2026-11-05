@@ -71,6 +71,36 @@ if (INTRO_SHOULD_PLAY) {
   }, 4000)
 }
 
+/*
+ * The single source of truth for the sequence's stage timings (ms from start).
+ * Each stage starts from the end of the one before, so the keyboard and hands
+ * are fully gone before the card enters, and everything after the card's rise
+ * keeps its original spacing. IntroSequence schedules its cues from this, and
+ * passes the dissolve duration to intro.css as `--intro-dissolve`.
+ */
+const TYPED = 3420 // last key press ("Continue." lands)
+const DISSOLVE_AT = TYPED + 180 // after the final key's press-and-spring settles
+const DISSOLVE_MS = 600
+const CARD_GAP = 120 // breath between the keyboard leaving and the card arriving
+const RISE = DISSOLVE_AT + DISSOLVE_MS + CARD_GAP
+
+export const INTRO_T = {
+  hands: 150,
+  typed: TYPED,
+  dissolve: DISSOLVE_AT,
+  dissolveMs: DISSOLVE_MS,
+  gone: DISSOLVE_AT + DISSOLVE_MS,
+  // Card and everything after keep their original offsets from the rise.
+  rise: RISE,
+  tumble: RISE + 750,
+  soften: RISE + 1400,
+  zoom: RISE + 1450,
+  sweep: RISE + 1550,
+  phrase: RISE + 2000,
+  leave: RISE + 3100,
+  done: RISE + 4100,
+} as const
+
 export type Cue = { at: number; run: () => void }
 
 /**

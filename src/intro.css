@@ -170,10 +170,28 @@ main:focus {
     opacity 700ms var(--ease),
     scale 700ms var(--ease);
 }
-.intro.is-soft .intro__words,
-.intro.is-soft .intro__desk {
+.intro.is-soft .intro__words {
   opacity: 0.16;
   scale: 0.97;
+}
+/* Once typing ends, the keyboard and hands dissolve out on their own, before
+   the card enters (timings: INTRO_T in hooks/useIntro.ts). */
+.intro.is-dissolve .intro__desk {
+  opacity: 0;
+  filter: blur(6px);
+  translate: 0 10px;
+  transition:
+    opacity var(--intro-dissolve, 600ms) var(--ease),
+    filter var(--intro-dissolve, 600ms) var(--ease),
+    translate var(--intro-dissolve, 600ms) var(--ease);
+}
+/* Fully gone: hidden, inert and no longer animating. */
+.intro.is-desk-gone .intro__desk {
+  visibility: hidden;
+  pointer-events: none;
+}
+.intro.is-desk-gone .intro-hand {
+  will-change: auto;
 }
 
 .intro-kb-wrap {
