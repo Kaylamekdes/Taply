@@ -443,7 +443,8 @@ a {
   transform: scaleX(0);
 }
 
-.nav-panel {
+.nav-panel,
+.nav-backdrop {
   display: none;
 }
 
@@ -2105,7 +2106,9 @@ a {
   .nav__toggle {
     display: grid;
   }
-  .nav-panel.is-open {
+  /* The panel drops and the page behind it blurs on the same frame, with the
+     same duration and easing, and both reverse together on close. */
+  .nav-panel {
     display: block;
     margin-top: 8px;
     padding: 8px 14px 18px;
@@ -2115,6 +2118,45 @@ a {
     box-shadow:
       0 0 0 1px rgba(19, 19, 31, 0.06),
       0 18px 40px -20px rgba(19, 19, 31, 0.45);
+    opacity: 0;
+    transform: translateY(-12px);
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 400ms var(--ease),
+      transform 400ms var(--ease),
+      visibility 0s linear 400ms;
+  }
+  .nav-panel.is-open {
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+    pointer-events: auto;
+    transition:
+      opacity 400ms var(--ease),
+      transform 400ms var(--ease),
+      visibility 0s linear 0s;
+  }
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: -1; /* below the nav bar and panel, above the page */
+    background: rgba(19, 19, 31, 0.12);
+    opacity: 0;
+    -webkit-backdrop-filter: blur(0px);
+    backdrop-filter: blur(0px);
+    pointer-events: none;
+    transition:
+      opacity 400ms var(--ease),
+      -webkit-backdrop-filter 400ms var(--ease),
+      backdrop-filter 400ms var(--ease);
+  }
+  .nav-backdrop.is-open {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    pointer-events: auto;
   }
   .nav-panel ul {
     margin: 0 0 16px;
@@ -2177,6 +2219,15 @@ a {
   }
   .step__in {
     padding-inline: 0;
+  }
+  /* Selected: the content moves in from the surface's edge. Translate only,
+     so nothing re-wraps; unselected stays on the page grid. */
+  .step__in > * {
+    transition: translate 350ms var(--ease);
+  }
+  .step__in:is(:hover, :active, :focus-within) > *,
+  .step.is-active .step__in > * {
+    translate: 22px 0;
   }
 
   .fgrid {
@@ -2368,7 +2419,9 @@ a {
   }
   .pstage__card {
     width: 68%;
-    left: -4%;
+    /* The -10deg turn widens the box by ~3.2% each side; this keeps the
+       rotated corners on screen with a margin. */
+    left: calc(3.2% + 2px);
   }
 
   .panel__copy {
@@ -2384,14 +2437,16 @@ a {
   .panel__visual {
     min-height: 430px;
   }
+  /* Both cards, rotated corners included, stay 12px+ inside the panel:
+     a 62% card turned 12-14deg is ~69.6% wide, centred on its box. */
   .panel__card {
-    width: 74%;
+    width: 62%;
   }
   .panel__card--rear {
-    left: 24%;
+    left: calc(34% - 14px);
   }
   .panel__card--front {
-    left: 2%;
+    left: calc(3.6% + 14px);
   }
   .included {
     grid-template-columns: 1fr;

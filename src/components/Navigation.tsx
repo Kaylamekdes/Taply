@@ -47,6 +47,8 @@ export function Navigation() {
 
   return (
     <header className="nav-wrap">
+      {/* Always mounted so it can fade and blur in step with the panel. */}
+      <div className={`nav-backdrop${menuOpen ? ' is-open' : ''}`} aria-hidden="true" onClick={close} />
       <div className="container">
         <nav className="nav" aria-label="Primary">
           <a className="nav__brand" href="#top" aria-label="Taply — back to top" onClick={close}>
