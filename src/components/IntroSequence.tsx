@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import '../intro.css'
 import { ProductCard } from './ProductCard'
+import { BrandMark } from './shared'
 import {
   INTRO_SHOULD_PLAY,
   INTRO_T,
@@ -13,6 +14,7 @@ import {
 } from '../hooks/useIntro'
 import type { Cue, Finger, Keystroke, Side } from '../hooks/useIntro'
 import { createIntroAudio } from '../hooks/introAudio'
+import type { IntroAudio } from '../hooks/introAudio'
 
 /*
  * Opening sequence, played once per session before the hero.
@@ -102,19 +104,82 @@ function Hand({ side }: { side: Side }) {
 
 // ---------------------------------------------------------------- component
 export function IntroSequence() {
-  const [done, setDone] = useState(!INTRO_SHOULD_PLAY)
-  if (done) return null
-  return <IntroOverlay onDone={() => setDone(true)} />
+  const [step, setStep] = useState<'gate' | 'play' | 'done'>(INTRO_SHOULD_PLAY ? 'gate' : 'done')
+  const audioRef = useRef<IntroAudio | null>(null)
+  if (step === 'done') return null
+  if (step === 'gate') {
+    return (
+      <IntroGate
+        onBegin={(withSound) => {
+          // Runs inside the tap: browsers (iOS Safari especially) only let
+          // audio start from a user gesture, so the context is created,
+          // resumed and unlocked here, before the sequence starts.
+          const audio = createIntroAudio()
+          audio.setEnabled(withSound)
+          audioRef.current = audio
+          setStep('play')
+        }}
+        onSkip={() => {
+          releasePage()
+          setStep('done')
+        }}
+      />
+    )
+  }
+  return <IntroOverlay audio={audioRef.current ?? createIntroAudio()} onDone={() => setStep('done')} />
 }
 
-function IntroOverlay({ onDone }: { onDone: () => void }) {
+// ---------------------------------------------------------------- start screen
+// A single tap before the intro, so its sound is allowed to play.
+function IntroGate({ onBegin, onSkip }: { onBegin: (withSound: boolean) => void; onSkip: () => void }) {
+  useEffect(() => {
+    // The intro has mounted (cancels useIntro's failsafe); the page stays
+    // locked and inert behind the start screen.
+    document.documentElement.classList.add('intro-mounted', 'intro-lock')
+    setPageInert(true)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onSkip()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // Mount-only by design.
+  }, [])
+
+  return (
+    <div className="intro intro-gate" role="dialog" aria-modal="true" aria-label="Taply intro">
+      <span className="intro__grid" aria-hidden="true" />
+      <div className="intro-gate__panel">
+        <BrandMark variant="symbol" className="intro-gate__mark" />
+        <span className="intro-gate__speaker" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor" />
+            <path d="M13 7.5a3.5 3.5 0 0 1 0 5M15.2 5.2a6.6 6.6 0 0 1 0 9.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </span>
+        <button type="button" className="cta cta--violet intro-gate__begin" onClick={() => onBegin(true)}>
+          <span className="cta__label">Tap to begin</span>
+          <span className="cta__arrow" aria-hidden="true">
+            <svg className="arrow" width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M4 2.5 10.5 7 4 11.5z" fill="currentColor" />
+            </svg>
+          </span>
+        </button>
+        <button type="button" className="intro-gate__mute" onClick={() => onBegin(false)}>
+          Continue without sound
+        </button>
+        <p className="intro-gate__hint">Turn off silent mode for sound.</p>
+      </div>
+    </div>
+  )
+}
+
+function IntroOverlay({ audio, onDone }: { audio: IntroAudio; onDone: () => void }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const flyRef = useRef<HTMLDivElement>(null)
   const liveRef = useRef<HTMLParagraphElement>(null)
-  const audioRef = useRef<ReturnType<typeof createIntroAudio> | null>(null)
-  if (!audioRef.current) audioRef.current = createIntroAudio()
-  const [soundOn, setSoundOn] = useState(audioRef.current.enabled)
+  const audioRef = useRef<IntroAudio | null>(audio)
+  const [soundOn, setSoundOn] = useState(audio.enabled)
   const finishedRef = useRef(false)
   const flewRef = useRef(false)
 
@@ -357,6 +422,7 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
 
   const toggleSound = () => {
     const next = !soundOn
+    // Inside the button's own tap, so switching on also resumes and unlocks audio.
     audioRef.current?.setEnabled(next)
     setSoundOn(next)
   }

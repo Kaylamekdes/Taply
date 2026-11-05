@@ -1,8 +1,9 @@
 /*
  * Synthesised sound for the opening sequence (Web Audio API, no files).
- * The AudioContext is only created on the first user gesture or when sound is
- * switched on, so autoplay rules are never hit. Every call is safe: if audio is
- * unavailable or locked, it silently does nothing.
+ * Browsers keep audio locked until a user gesture, so the AudioContext is only
+ * created (or resumed) from one: the start screen's "Tap to begin", or the
+ * sound button. Every call is safe: if audio is unavailable or locked, it
+ * silently does nothing.
  */
 
 const PREF_KEY = 'taply-sound'
@@ -29,6 +30,7 @@ export function createIntroAudio() {
   let enabled = readSoundPref()
   let ctx: AudioContext | null = null
   let master: GainNode | null = null
+  let clickBus: GainNode | null = null
   let noise: AudioBuffer | null = null
   let closed = false
 
@@ -40,14 +42,36 @@ export function createIntroAudio() {
           window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioCtor }).webkitAudioContext
         if (!Ctor) return
         ctx = new Ctor()
+        // Everything meets a gentle limiter, then make-up gain, so the clicks
+        // can be loud on a phone speaker without ever clipping or sounding harsh.
+        const limiter = ctx.createDynamicsCompressor()
+        limiter.threshold.value = -6
+        limiter.knee.value = 6
+        limiter.ratio.value = 12
+        limiter.attack.value = 0.001
+        limiter.release.value = 0.06
+        const out = ctx.createGain()
+        out.gain.value = 1.4
+        limiter.connect(out).connect(ctx.destination)
+        // Whoosh and shimmer: same level as before (0.42 overall).
         master = ctx.createGain()
-        master.gain.value = 0.42
-        master.connect(ctx.destination)
+        master.gain.value = 0.3
+        master.connect(limiter)
+        // Key clicks get their own, louder bus.
+        clickBus = ctx.createGain()
+        clickBus.gain.value = 1.4
+        clickBus.connect(limiter)
         noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
         const data = noise.getChannelData(0)
         for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
       }
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
+      if (ctx.state !== 'running') ctx.resume().catch(() => {})
+      // A one-sample silent buffer played inside the gesture unlocks output on
+      // iOS Safari.
+      const silent = ctx.createBufferSource()
+      silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
+      silent.connect(ctx.destination)
+      silent.start(0)
     } catch {
       ctx = null
     }
@@ -72,7 +96,7 @@ export function createIntroAudio() {
   }
 
   return {
-    /** Call from any user gesture. */
+    /** Call from inside a user gesture: creates/resumes the context and unlocks output. */
     unlock: ensure,
 
     get enabled() {
@@ -87,11 +111,13 @@ export function createIntroAudio() {
     },
 
     /**
-     * Mechanical key: filtered noise tick + low thock, lightly randomised.
+     * Mechanical key: filtered noise tick + a short 2-4kHz clack (so it carries
+     * on small phone speakers) + low thock, lightly randomised.
      * `pitch` below 1 makes a deeper key (Shift, space bar); 1 is unchanged.
      */
     click(pitch = 1) {
-      safely((c, out, buf) => {
+      safely((c, _master, buf) => {
+        const out = clickBus!
         const t = c.currentTime
         const v = 0.6 + Math.random() * 0.35
 
@@ -103,10 +129,24 @@ export function createIntroAudio() {
         bp.frequency.value = (2400 + Math.random() * 1600) * pitch
         bp.Q.value = 1.4
         const g = c.createGain()
-        env(g, t, 0.32 * v, 0.002, 0.032)
+        env(g, t, 0.5 * v, 0.002, 0.03)
         src.connect(bp).connect(g).connect(out)
         src.start(t, Math.random() * 0.8)
         src.stop(t + 0.05)
+
+        // High-mid clack: the part a phone speaker can actually reproduce.
+        const clk = c.createOscillator()
+        clk.type = 'square'
+        clk.frequency.value = (2600 + Math.random() * 500) * pitch
+        const cbp = c.createBiquadFilter()
+        cbp.type = 'bandpass'
+        cbp.frequency.value = 3000 * pitch
+        cbp.Q.value = 2
+        const cg = c.createGain()
+        env(cg, t, 0.16 * v, 0.001, 0.018)
+        clk.connect(cbp).connect(cg).connect(out)
+        clk.start(t)
+        clk.stop(t + 0.03)
 
         const osc = c.createOscillator()
         osc.type = 'triangle'

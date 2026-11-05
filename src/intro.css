@@ -575,6 +575,80 @@ main:focus {
   background: #23233a;
 }
 
+/* ---- Start screen ------------------------------------------------------- */
+/* Shown once per session before the intro: one tap unlocks its sound. */
+.intro-gate {
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--warm-paper);
+  touch-action: manipulation;
+}
+.intro-gate__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: intro-gate-in 600ms var(--ease) both;
+}
+@keyframes intro-gate-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+.intro-gate__mark {
+  width: 64px;
+  height: auto;
+}
+.intro-gate__speaker {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 36px 0 20px;
+  border: 1px solid rgba(19, 19, 31, 0.14);
+  border-radius: 50%;
+  color: var(--tap-violet);
+}
+.intro-gate__begin {
+  border: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+.intro-gate__begin:focus-visible,
+.intro-gate__mute:focus-visible {
+  outline: 2px solid var(--tap-violet);
+  outline-offset: 3px;
+}
+.intro-gate__mute {
+  min-height: 44px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--carbon);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: rgba(19, 19, 31, 0.3);
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.intro-gate__mute:hover {
+  text-decoration-color: var(--tap-violet);
+}
+.intro-gate__hint {
+  margin: 18px 0 0;
+  color: rgba(19, 19, 31, 0.56);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
 /* ---- Small screens ------------------------------------------------------ */
 @media (max-width: 640px) {
   .intro {
