@@ -41,4 +41,5 @@ recoloured, redrawn, skewed or given effects. The wordmark pixels are untouched.
 - Nav, hero and final CTAs scroll to `#pricing`. The pricing CTA and footer link go to `https://taply.com`, the only confirmed purchase destination. No checkout is built.
 - The Amara Mensah profile is the sample from the brand guideline, labelled as a product demonstration, not a testimonial.
 - Nothing is invented beyond the spec's confirmed facts (no delivery, warranty, payment, dimension or contact details).
+- Intro sound: browsers block autoplay audio, so the key clicks play only after the visitor's first tap, click, touch or key press (the speaker button pulses until then); the iOS silent switch also mutes web audio.
 - The FAQ answers on production time ("How long does it take to get my card?") and payment terms ("What are the payment terms?") were supplied by the project owner and should be confirmed with Taply before launch.

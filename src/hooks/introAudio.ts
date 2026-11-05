@@ -1,9 +1,10 @@
 /*
  * Synthesised sound for the opening sequence (Web Audio API, no files).
- * Browsers keep audio locked until a user gesture, so the AudioContext is only
- * created (or resumed) from one: the start screen's "Tap to begin", or the
- * sound button. Every call is safe: if audio is unavailable or locked, it
- * silently does nothing.
+ * The context is created when the intro starts and resumed if the browser
+ * allows it. Browsers usually keep audio locked until a user gesture, so
+ * `unlock()` is called from the first tap, click or key press (and from the
+ * sound button) to resume it and unlock iOS Safari. Every call is safe: if
+ * audio is unavailable or still locked, it silently does nothing.
  */
 
 const PREF_KEY = 'taply-sound'
@@ -33,47 +34,64 @@ export function createIntroAudio() {
   let clickBus: GainNode | null = null
   let noise: AudioBuffer | null = null
   let closed = false
+  let onChange: (() => void) | null = null
+  const notify = () => onChange?.()
 
-  const ensure = () => {
-    if (closed || !enabled) return
+  /** Creates the context and its output chain once. */
+  const build = (): AudioContext | null => {
+    if (closed) return null
+    if (ctx) return ctx
     try {
-      if (!ctx) {
-        const Ctor: AudioCtor | undefined =
-          window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioCtor }).webkitAudioContext
-        if (!Ctor) return
-        ctx = new Ctor()
-        // Everything meets a gentle limiter, then make-up gain, so the clicks
-        // can be loud on a phone speaker without ever clipping or sounding harsh.
-        const limiter = ctx.createDynamicsCompressor()
-        limiter.threshold.value = -6
-        limiter.knee.value = 6
-        limiter.ratio.value = 12
-        limiter.attack.value = 0.001
-        limiter.release.value = 0.06
-        const out = ctx.createGain()
-        out.gain.value = 1.4
-        limiter.connect(out).connect(ctx.destination)
-        // Whoosh and shimmer: same level as before (0.42 overall).
-        master = ctx.createGain()
-        master.gain.value = 0.3
-        master.connect(limiter)
-        // Key clicks get their own, louder bus.
-        clickBus = ctx.createGain()
-        clickBus.gain.value = 1.4
-        clickBus.connect(limiter)
-        noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
-        const data = noise.getChannelData(0)
-        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
-      }
-      if (ctx.state !== 'running') ctx.resume().catch(() => {})
-      // A one-sample silent buffer played inside the gesture unlocks output on
-      // iOS Safari.
-      const silent = ctx.createBufferSource()
-      silent.buffer = ctx.createBuffer(1, 1, ctx.sampleRate)
-      silent.connect(ctx.destination)
-      silent.start(0)
+      const Ctor: AudioCtor | undefined =
+        window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioCtor }).webkitAudioContext
+      if (!Ctor) return null
+      ctx = new Ctor()
+      // Everything meets a gentle limiter, then make-up gain, so the clicks
+      // can be loud on a phone speaker without ever clipping or sounding harsh.
+      const limiter = ctx.createDynamicsCompressor()
+      limiter.threshold.value = -6
+      limiter.knee.value = 6
+      limiter.ratio.value = 12
+      limiter.attack.value = 0.001
+      limiter.release.value = 0.06
+      const out = ctx.createGain()
+      out.gain.value = 1.4
+      limiter.connect(out).connect(ctx.destination)
+      // Whoosh and shimmer: same level as before (0.42 overall).
+      master = ctx.createGain()
+      master.gain.value = 0.3
+      master.connect(limiter)
+      // Key clicks get their own, louder bus.
+      clickBus = ctx.createGain()
+      clickBus.gain.value = 1.4
+      clickBus.connect(limiter)
+      noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate)
+      const data = noise.getChannelData(0)
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+      ctx.onstatechange = notify
     } catch {
       ctx = null
+    }
+    return ctx
+  }
+
+  const resume = () => {
+    if (ctx && ctx.state !== 'running') ctx.resume().then(notify, () => {})
+  }
+
+  /** From inside a user gesture: resume, and play a one-sample silent buffer (unlocks iOS Safari). */
+  const unlock = () => {
+    if (!enabled) return
+    const c = build()
+    if (!c) return
+    try {
+      resume()
+      const silent = c.createBufferSource()
+      silent.buffer = c.createBuffer(1, 1, c.sampleRate)
+      silent.connect(c.destination)
+      silent.start(0)
+    } catch {
+      /* still locked: stay silent */
     }
   }
 
@@ -96,8 +114,29 @@ export function createIntroAudio() {
   }
 
   return {
-    /** Call from inside a user gesture: creates/resumes the context and unlocks output. */
-    unlock: ensure,
+    /** At the start of the intro: create the context and try to resume it (may stay locked). */
+    start() {
+      if (!enabled) return
+      build()
+      resume()
+    },
+
+    unlock,
+
+    /** True once audio is actually playing (not locked or suspended). */
+    get running() {
+      return !closed && !!ctx && ctx.state === 'running'
+    },
+
+    /** False when the browser has no Web Audio at all. */
+    get supported() {
+      return !!(window.AudioContext ?? (window as unknown as { webkitAudioContext?: AudioCtor }).webkitAudioContext)
+    },
+
+    /** Called whenever the context's state changes (locked -> running, suspended, ...). */
+    onStateChange(cb: (() => void) | null) {
+      onChange = cb
+    },
 
     get enabled() {
       return enabled
@@ -106,7 +145,7 @@ export function createIntroAudio() {
     setEnabled(on: boolean) {
       enabled = on
       writeSoundPref(on)
-      if (on) ensure()
+      if (on) unlock()
       else ctx?.suspend().catch(() => {})
     },
 
@@ -214,6 +253,7 @@ export function createIntroAudio() {
 
     close() {
       closed = true
+      onChange = null
       ctx?.close().catch(() => {})
       ctx = null
     },
