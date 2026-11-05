@@ -2366,16 +2366,18 @@ a {
   .stage__note {
     display: none;
   }
+  /* Both cards, rotated corners and shadows included, stay 20px+ inside the
+     screen at rest (12px+ at the float and parallax extremes). */
   .stage__card {
-    width: 78%;
+    width: 66%;
   }
   .stage__card--rear {
-    left: 22%;
-    top: 5%;
+    left: 25%;
+    top: 8%;
   }
   .stage__card--front {
-    left: 0;
-    top: 41%;
+    left: 9%;
+    top: 45%;
   }
   .hero__band p {
     letter-spacing: 0.24em;
