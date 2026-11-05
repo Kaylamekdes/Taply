@@ -1213,7 +1213,8 @@ a {
   pointer-events: none;
   transition: background-color 350ms var(--ease);
 }
-.step__in:hover::before {
+.step__in:hover::before,
+.step.is-active .step__in::before {
   background: rgba(255, 255, 255, 0.72);
 }
 /* Selected: only the text glides right (transform only, so nothing re-wraps
@@ -2239,6 +2240,14 @@ a {
   }
   .step__in {
     padding-inline: 0;
+  }
+  /* Stacked: the selection is driven by scroll, hover, tap and focus in
+     HowItWorks.tsx (one step at a time), so the CSS states don't add a second. */
+  .step:not(.is-active) .step__in::before {
+    background: transparent;
+  }
+  .step:not(.is-active) :is(.step__num, .step__title, .step__text) {
+    transform: none;
   }
 
   .fgrid {

@@ -7,6 +7,9 @@
  * audio is unavailable or still locked, it silently does nothing.
  */
 
+// Only the visitor's explicit mute is remembered (per session). Whether the
+// browser has unlocked audio is never stored: that resets on every page load,
+// so every load creates a fresh context and unlocks it again.
 const PREF_KEY = 'taply-sound'
 
 export function readSoundPref(): boolean {
@@ -19,7 +22,8 @@ export function readSoundPref(): boolean {
 
 function writeSoundPref(on: boolean) {
   try {
-    window.sessionStorage.setItem(PREF_KEY, on ? 'on' : 'off')
+    if (on) window.sessionStorage.removeItem(PREF_KEY)
+    else window.sessionStorage.setItem(PREF_KEY, 'off')
   } catch {
     /* storage unavailable: preference lasts for this page only */
   }
@@ -75,8 +79,9 @@ export function createIntroAudio() {
     return ctx
   }
 
+  // Anything but 'running' ('suspended', iOS Safari's 'interrupted') counts as locked.
   const resume = () => {
-    if (ctx && ctx.state !== 'running') ctx.resume().then(notify, () => {})
+    if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') ctx.resume().then(notify, () => {})
   }
 
   /** From inside a user gesture: resume, and play a one-sample silent buffer (unlocks iOS Safari). */
@@ -126,6 +131,11 @@ export function createIntroAudio() {
     /** True once audio is actually playing (not locked or suspended). */
     get running() {
       return !closed && !!ctx && ctx.state === 'running'
+    },
+
+    /** The context's state right now, for diagnostics. */
+    get state(): string {
+      return ctx ? ctx.state : enabled ? 'no-context' : 'muted'
     },
 
     /** False when the browser has no Web Audio at all. */
@@ -247,8 +257,9 @@ export function createIntroAudio() {
       ctx?.suspend().catch(() => {})
     },
 
+    /** Tab visible again / page restored from the back-forward cache: try again. */
     resume() {
-      if (enabled && ctx?.state === 'suspended') ctx.resume().catch(() => {})
+      if (enabled && !closed) resume()
     },
 
     close() {

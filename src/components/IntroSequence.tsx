@@ -119,6 +119,8 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
   const [soundOn, setSoundOn] = useState(audioRef.current.enabled)
   // Sound is on but the browser hasn't let it play yet (no gesture so far).
   const [locked, setLocked] = useState(false)
+  // Re-checks the audio state (pulse + gesture listeners); set on mount.
+  const syncRef = useRef<() => void>(() => {})
   const finishedRef = useRef(false)
   const flewRef = useRef(false)
 
@@ -203,7 +205,12 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
 
       // One keystroke: everything fires from this single cue.
       let newest: HTMLElement | null = null
+      let logged = false
       const keyDown = (s: Keystroke) => {
+        if (!logged) {
+          logged = true
+          console.debug('[intro] audio at first keystroke:', audio.state)
+        }
         const hand = hands[s.side]
         // The hand has normally just arrived. If frames were dropped and it is
         // still travelling, finish the move now so the fingertip is on the key.
@@ -330,6 +337,7 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
       return cues
     },
     (hidden) => {
+      // Back to visible: try again (a gesture unlocks it if this is refused).
       if (hidden) audioRef.current?.suspend()
       else audioRef.current?.resume()
     },
@@ -342,33 +350,53 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
     if (!finishedRef.current) html.classList.add('intro-playing')
     setPageInert(true)
 
-    // Audio: create the context now and try to start it. Browsers usually
-    // block that until a gesture, so the first tap, click or key press
-    // anywhere unlocks it (from inside that handler), then the listeners go.
+    // Audio, the same on every load (nothing about unlocking is stored): create
+    // the context now and try to start it. Browsers usually block that until a
+    // gesture, so while it isn't running, the next tap, click or key press
+    // anywhere unlocks it from inside that handler. Any state but 'running'
+    // ('suspended', iOS Safari's 'interrupted') counts as locked, and the
+    // listeners come back if it drops out of 'running' later.
     const audio = audioRef.current!
-    const GESTURES = ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'click', 'keydown'] as const
+    const GESTURES = ['pointerdown', 'touchstart', 'touchend', 'pointerup', 'click', 'keydown'] as const
+    let listening = false
     const unlock = (e: Event) => {
       // The sound button handles its own tap (it may be turning sound off).
       if (soundBtnRef.current?.contains(e.target as Node)) return
       audio.unlock()
     }
-    const removeGestures = () => GESTURES.forEach((g) => window.removeEventListener(g, unlock, true))
-    const sync = () => {
-      setLocked(audio.enabled && audio.supported && !audio.running)
-      if (audio.running) removeGestures()
+    const setGestures = (on: boolean) => {
+      if (on === listening) return
+      listening = on
+      GESTURES.forEach((g) =>
+        on
+          ? window.addEventListener(g, unlock, { capture: true, passive: true })
+          : window.removeEventListener(g, unlock, true),
+      )
     }
+    const sync = () => {
+      const isLocked = audio.enabled && audio.supported && !audio.running
+      setLocked(isLocked)
+      setGestures(isLocked)
+    }
+    // Back-forward cache restore: the context comes back suspended.
+    const onPageShow = () => {
+      audio.resume()
+      sync()
+    }
+    syncRef.current = sync
     audio.onStateChange(sync)
-    GESTURES.forEach((g) => window.addEventListener(g, unlock, { capture: true, passive: true }))
     audio.start()
+    console.debug('[intro] audio at intro start:', audio.state)
     sync()
-
+    window.addEventListener('pageshow', onPageShow)
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') finish(true)
     }
     window.addEventListener('keydown', onKey)
     return () => {
       audio.onStateChange(null)
-      removeGestures()
+      setGestures(false)
+      window.removeEventListener('pageshow', onPageShow)
       window.removeEventListener('keydown', onKey)
       if (!finishedRef.current) releasePage()
     }
@@ -387,7 +415,7 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
     // Inside the button's own tap, so switching on also resumes and unlocks audio.
     audio.setEnabled(next)
     setSoundOn(next)
-    setLocked(next && audio.supported && !audio.running)
+    syncRef.current()
   }
 
   return (
