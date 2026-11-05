@@ -72,13 +72,109 @@ if (INTRO_SHOULD_PLAY) {
 }
 
 /*
+ * The typing script: INTRO_TEXT split into keystrokes, each with one time.
+ * IntroSequence fires everything for a keystroke from that single cue (key
+ * depression, finger tap, click and the character appearing), so they can
+ * never drift apart. Capitals press the opposite hand's Shift first.
+ */
+export const INTRO_TEXT = 'Meet. Tap. Continue.'
+
+export type Side = 'left' | 'right'
+export type Finger = 'index' | 'middle' | 'ring' | 'pinky' | 'thumb'
+
+/** Touch-typing finger assignment: key id -> [hand, finger]. */
+export const FINGER_FOR: Record<string, [Side, Finger]> = {}
+;(
+  [
+    ['left', 'pinky', ['Q', 'A', 'Z', 'shiftL']],
+    ['left', 'ring', ['W', 'S', 'X']],
+    ['left', 'middle', ['E', 'D', 'C']],
+    ['left', 'index', ['R', 'T', 'F', 'G', 'V', 'B']],
+    ['right', 'index', ['Y', 'U', 'H', 'J', 'N', 'M']],
+    ['right', 'middle', ['I', 'K', 'comma']],
+    ['right', 'ring', ['O', 'L', 'dot']],
+    ['right', 'pinky', ['P', 'semi', 'shiftR']],
+  ] as [Side, Finger, string[]][]
+).forEach(([side, finger, keys]) => keys.forEach((k) => (FINGER_FOR[k] = [side, finger])))
+
+export function keyIdFor(ch: string): string {
+  if (ch === '.') return 'dot'
+  if (ch === ',') return 'comma'
+  if (ch === ';') return 'semi'
+  if (ch === ' ') return 'space'
+  return ch.toUpperCase()
+}
+
+export type Keystroke = {
+  /** Key goes down: depression, finger tap, click and character all fire here. */
+  at: number
+  /** Key comes back up. */
+  upAt: number
+  key: string
+  side: Side
+  finger: Finger
+  /** Index of the character it types in INTRO_TEXT; -1 for Shift. */
+  index: number
+  /** Shift and the space bar sound slightly deeper. */
+  deep: boolean
+}
+
+const TYPE_START = 640 // first letter
+const KEY_GAP = 130 // ms between keystrokes, varied by JITTER: 110-150ms
+const JITTER = [0, 10, -12, 15, -6, 8, -15, 4, 18, -10, 12, -4, -14, 9, -8, 16, -18, 6, 11, -5]
+const AFTER_PERIOD = 100 // extra pause after a full stop
+const AFTER_SPACE = 70 // extra pause after a space
+const SHIFT_LEAD = 95 // Shift goes down this long before its letter
+const SHIFT_AFTER = 50 // and is released this long after it
+const TAP_HOLD = 80 // how long a tapped key stays down
+
+function buildScript(text: string): Keystroke[] {
+  const strokes: Keystroke[] = []
+  let t = TYPE_START
+  ;[...text].forEach((ch, i) => {
+    if (i > 0) {
+      const prev = text[i - 1]
+      t += KEY_GAP + JITTER[i % JITTER.length] + (prev === '.' ? AFTER_PERIOD : 0) + (prev === ' ' ? AFTER_SPACE : 0)
+    }
+    const key = keyIdFor(ch)
+    let side: Side
+    let finger: Finger
+    if (ch === ' ') {
+      // Space with a thumb. If the next letter is a capital, use the thumb of
+      // the hand that types it, so the other hand is free for Shift.
+      const next = text[i + 1]
+      side = next && next !== next.toLowerCase() ? FINGER_FOR[keyIdFor(next)][0] : 'right'
+      finger = 'thumb'
+    } else {
+      ;[side, finger] = FINGER_FOR[key]
+    }
+    if (ch !== ch.toLowerCase()) {
+      const shiftSide: Side = side === 'left' ? 'right' : 'left'
+      strokes.push({
+        at: t - SHIFT_LEAD,
+        upAt: t + SHIFT_AFTER,
+        key: shiftSide === 'left' ? 'shiftL' : 'shiftR',
+        side: shiftSide,
+        finger: 'pinky',
+        index: -1,
+        deep: true,
+      })
+    }
+    strokes.push({ at: t, upAt: t + TAP_HOLD, key, side, finger, index: i, deep: ch === ' ' })
+  })
+  return strokes.sort((a, b) => a.at - b.at)
+}
+
+export const TYPING_SCRIPT = buildScript(INTRO_TEXT)
+
+/*
  * The single source of truth for the sequence's stage timings (ms from start).
  * Each stage starts from the end of the one before, so the keyboard and hands
  * are fully gone before the card enters, and everything after the card's rise
  * keeps its original spacing. IntroSequence schedules its cues from this, and
  * passes the dissolve duration to intro.css as `--intro-dissolve`.
  */
-const TYPED = 3420 // last key press ("Continue." lands)
+const TYPED = TYPING_SCRIPT[TYPING_SCRIPT.length - 1].at // last key press ("Continue." lands)
 const DISSOLVE_AT = TYPED + 180 // after the final key's press-and-spring settles
 const DISSOLVE_MS = 600
 const CARD_GAP = 120 // breath between the keyboard leaving and the card arriving

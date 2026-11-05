@@ -86,8 +86,11 @@ export function createIntroAudio() {
       else ctx?.suspend().catch(() => {})
     },
 
-    /** Mechanical key: filtered noise tick + low thock, lightly randomised. */
-    click() {
+    /**
+     * Mechanical key: filtered noise tick + low thock, lightly randomised.
+     * `pitch` below 1 makes a deeper key (Shift, space bar); 1 is unchanged.
+     */
+    click(pitch = 1) {
       safely((c, out, buf) => {
         const t = c.currentTime
         const v = 0.6 + Math.random() * 0.35
@@ -97,7 +100,7 @@ export function createIntroAudio() {
         src.playbackRate.value = 0.85 + Math.random() * 0.3
         const bp = c.createBiquadFilter()
         bp.type = 'bandpass'
-        bp.frequency.value = 2400 + Math.random() * 1600
+        bp.frequency.value = (2400 + Math.random() * 1600) * pitch
         bp.Q.value = 1.4
         const g = c.createGain()
         env(g, t, 0.32 * v, 0.002, 0.032)
@@ -107,7 +110,7 @@ export function createIntroAudio() {
 
         const osc = c.createOscillator()
         osc.type = 'triangle'
-        const f = 140 + Math.random() * 50
+        const f = (140 + Math.random() * 50) * pitch
         osc.frequency.setValueAtTime(f, t)
         osc.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.07)
         const lp = c.createBiquadFilter()

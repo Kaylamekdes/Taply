@@ -2,8 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import '../intro.css'
 import { ProductCard } from './ProductCard'
-import { INTRO_SHOULD_PLAY, INTRO_T, releasePage, setPageInert, useIntroTimeline } from '../hooks/useIntro'
-import type { Cue } from '../hooks/useIntro'
+import {
+  INTRO_SHOULD_PLAY,
+  INTRO_T,
+  INTRO_TEXT,
+  TYPING_SCRIPT,
+  releasePage,
+  setPageInert,
+  useIntroTimeline,
+} from '../hooks/useIntro'
+import type { Cue, Finger, Keystroke, Side } from '../hooks/useIntro'
 import { createIntroAudio } from '../hooks/introAudio'
 
 /*
@@ -16,41 +24,29 @@ import { createIntroAudio } from '../hooks/introAudio'
  */
 
 // ---------------------------------------------------------------- keyboard
-const ROWS = [
-  ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-  ['Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.'],
-  ['space'],
-]
-
-type Side = 'left' | 'right'
-type Finger = 'index' | 'middle' | 'ring' | 'pinky' | 'thumb'
-
-const FINGER_FOR: Record<string, [Side, Finger]> = {}
-;(
+// QWERTY, positioned in key units (1 = one key pitch) across 11.5 units, with
+// the real row stagger (A is 0.25 right of Q, Z is 0.75 right of Q).
+type KeyDef = { id: string; label: string; x: number; w?: number }
+const letters = (s: string, x0: number): KeyDef[] => [...s].map((c, i) => ({ id: c, label: c, x: x0 + i }))
+const ROWS: KeyDef[][] = [
+  letters('QWERTYUIOP', 0.5),
+  [...letters('ASDFGHJKL', 0.75), { id: 'semi', label: ';', x: 9.75 }],
   [
-    ['left', 'pinky', 'QAZ'],
-    ['left', 'ring', 'WSX'],
-    ['left', 'middle', 'EDC'],
-    ['left', 'index', 'RFVTGB'],
-    ['right', 'index', 'YHNUJM'],
-    ['right', 'middle', 'IK,'],
-    ['right', 'ring', 'OL.'],
-    ['right', 'pinky', 'P'],
-  ] as [Side, Finger, string][]
-).forEach(([side, finger, keys]) => [...keys].forEach((k) => (FINGER_FOR[k] = [side, finger])))
-FINGER_FOR.space = ['right', 'thumb']
-
-// Typing "Meet. Tap. Continue." with a natural, slightly irregular rhythm (ms).
-const PRESSES: [string, number][] = [
-  ['M', 620], ['E', 770], ['E', 875], ['T', 1040], ['.', 1220],
-  ['space', 1420], ['T', 1590], ['A', 1730], ['P', 1890], ['.', 2060],
-  ['space', 2250], ['C', 2420], ['O', 2550], ['N', 2665], ['T', 2790],
-  ['I', 2910], ['N', 3020], ['U', 3135], ['E', 3255], ['.', 3420],
+    { id: 'shiftL', label: 'shift', x: 0, w: 1.25 },
+    ...letters('ZXCVBNM', 1.25),
+    { id: 'comma', label: ',', x: 8.25 },
+    { id: 'dot', label: '.', x: 9.25 },
+    { id: 'shiftR', label: 'shift', x: 10.25, w: 1.25 },
+  ],
+  [{ id: 'space', label: '', x: 3.25, w: 5 }],
 ]
-const WORDS = ['Meet.', 'Tap.', 'Continue.']
-// Each word lands on its final key press (the full stop).
-const WORD_AT = [1220, 2060, 3420]
+
+// The words on screen, built from the same text the hands type.
+const WORDS = INTRO_TEXT.split(' ').reduce<{ text: string; start: number }[]>((acc, text) => {
+  const prev = acc[acc.length - 1]
+  acc.push({ text, start: prev ? prev.start + prev.text.length + 1 : 0 })
+  return acc
+}, [])
 
 const PHRASE = [
   { w: 'Make' }, { w: 'the' }, { w: 'first' }, { w: 'hello' },
@@ -86,10 +82,12 @@ function Hand({ side }: { side: Side }) {
           <g transform={side === 'left' ? 'translate(108 0) scale(-1 1)' : undefined}>
             <g data-finger="thumb">
               <rect x="-2" y="70" width="16" height="56" rx="8" transform="rotate(-28 6 98)" />
+              <circle className="intro-hand__tip" data-tip="thumb" cx={TIPS.thumb[0]} cy={TIPS.thumb[1]} r="0.5" />
             </g>
             {FINGER_RECTS.map(([name, cx, top]) => (
               <g data-finger={name} key={name}>
                 <rect x={cx - 8} y={top} width="16" height={104 - top} rx="8" />
+                <circle className="intro-hand__tip" data-tip={name} cx={TIPS[name][0]} cy={TIPS[name][1]} r="0.5" />
               </g>
             ))}
             <rect className="intro-hand__palm" x="14" y="70" width="90" height="86" rx="28" />
@@ -169,16 +167,19 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
         left: root.querySelector<HTMLElement>('[data-hand="left"]')!,
         right: root.querySelector<HTMLElement>('[data-hand="right"]')!,
       }
-      const keyEl = (k: string) => root.querySelector<HTMLElement>(`[data-key="${k === '.' ? 'dot' : k === ',' ? 'comma' : k}"]`)!
+      const keyEl = (id: string) => root.querySelector<HTMLElement>(`[data-key="${id}"]`)!
 
-      // Place a hand so the given fingertip sits over a key's centre.
+      // Place a hand so the given fingertip sits over a key's centre. The hands
+      // share the keyboard's container, so both are measured in the same frame
+      // and the target holds even while the keyboard is still sliding in.
+      // `.intro-key__c` is a zero-size point at the key cap's centre, so its box
+      // is the exact on-screen centre under the 3D tilt.
       const placeHand = (side: Side, finger: Finger, key: string, duration: number) => {
         const hand = hands[side]
-        const cap = keyEl(key).querySelector<HTMLElement>('.intro-key__cap')!
-        const kr = cap.getBoundingClientRect()
+        const kr = keyEl(key).querySelector<HTMLElement>('.intro-key__c')!.getBoundingClientRect()
         const sr = ((hand.offsetParent as HTMLElement | null) ?? stage).getBoundingClientRect()
-        const kx = kr.left + kr.width / 2 - sr.left
-        const ky = kr.top + kr.height / 2 - sr.top
+        const kx = kr.left - sr.left
+        const ky = kr.top - sr.top
         const s = hand.offsetWidth / VB.w
         let [fx, fy] = TIPS[finger]
         if (side === 'left') fx = 108 - fx
@@ -188,34 +189,52 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
         const ry = px * Math.sin(HAND_ANGLE) + py * Math.cos(HAND_ANGLE)
         hand.style.transitionDuration = `${duration}ms`
         hand.style.transform = `translate3d(${(kx - rx).toFixed(1)}px, ${(ky - ry).toFixed(1)}px, 0) rotate(${HAND_ANGLE}rad)`
+        if (duration === 0) {
+          // Cancel any move still in flight (same target or not) and jump to it.
+          hand.style.transitionProperty = 'none'
+          void hand.offsetWidth
+          hand.style.transitionProperty = ''
+        }
       }
 
-      const press = (key: string) => {
-        const [side, finger] = FINGER_FOR[key]
-        const hand = hands[side]
+      // One keystroke: everything fires from this single cue.
+      let newest: HTMLElement | null = null
+      const keyDown = (s: Keystroke) => {
+        const hand = hands[s.side]
+        // The hand has normally just arrived. If frames were dropped and it is
+        // still travelling, finish the move now so the fingertip is on the key.
+        placeHand(s.side, s.finger, s.key, 0)
+        // Likewise if the hand's entrance is still running (slow first frames).
+        hand
+          .querySelector('.intro-hand__dip')
+          ?.getAnimations()
+          .forEach((a) => a instanceof CSSTransition && a.finish())
         hand.querySelector('.intro-hand__dip')?.animate(
           [{ transform: 'none' }, { transform: 'translateY(3%)' }, { transform: 'none' }],
           { duration: 170, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
         )
-        hand.querySelector(`[data-finger="${finger}"]`)?.animate(
+        hand.querySelector(`[data-finger="${s.finger}"]`)?.animate(
           [{ transform: 'none' }, { transform: 'translateY(4px)' }, { transform: 'none' }],
           { duration: 170, easing: 'ease-out' },
         )
-        const k = keyEl(key)
-        k.querySelector('.intro-key__cap')?.animate(
-          [
-            { transform: 'translateZ(6px)' },
-            { transform: 'translateZ(1px)', offset: 0.3 },
-            { transform: 'translateZ(7px)', offset: 0.7 },
-            { transform: 'translateZ(6px)' },
-          ],
-          { duration: 240, easing: 'ease-out' },
-        )
-        k.querySelector('.intro-key__glow')?.animate([{ opacity: 1 }, { opacity: 0 }], {
-          duration: 520,
-          easing: 'ease-out',
-        })
-        audio.click()
+        const k = keyEl(s.key)
+        k.classList.add('is-down')
+        k.dataset.downAt = String(s.at)
+        audio.click(s.deep ? 0.78 : 1)
+        if (s.index >= 0) {
+          const ch = root.querySelector<HTMLElement>(`[data-ci="${s.index}"]`)
+          if (ch) {
+            newest?.classList.remove('is-new')
+            ch.classList.add('is-in', 'is-new')
+            ch.closest('.iw')?.classList.add('is-in')
+            newest = ch
+          }
+        }
+      }
+      const keyUp = (s: Keystroke) => {
+        const k = keyEl(s.key)
+        // A later press of the same key owns it now.
+        if (k.dataset.downAt === String(s.at)) k.classList.remove('is-down')
       }
 
       // Stage set-up
@@ -229,22 +248,22 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
       })
       phase(T.hands, 'is-hands')
 
-      // Typing
-      const lastPress: Record<Side, number> = { left: 0, right: 0 }
-      PRESSES.forEach(([key, at]) => {
-        const [side, finger] = FINGER_FOR[key]
-        const moveAt = Math.max(at - 130, lastPress[side] + 45)
-        lastPress[side] = at
-        add(moveAt, () => placeHand(side, finger, key, Math.max(60, at - moveAt - 10)))
-        add(at, () => press(key))
+      // Typing, from the shared script. A hand travels to its key just before
+      // the press: once its last finger has lifted, and never while it is
+      // holding Shift down.
+      const freeAt: Record<Side, number> = { left: 0, right: 0 }
+      TYPING_SCRIPT.forEach((s) => {
+        const moveAt = Math.max(s.at - 110, freeAt[s.side])
+        freeAt[s.side] = s.key.startsWith('shift') ? s.upAt + 10 : s.at + 40
+        add(moveAt, () => placeHand(s.side, s.finger, s.key, Math.max(40, s.at - moveAt - 8)))
+        add(s.at, () => keyDown(s))
+        add(s.upAt, () => keyUp(s))
       })
-      add(3560, () => {
+      add(T.typed + 140, () => {
         placeHand('left', 'index', 'F', 260)
         placeHand('right', 'index', 'J', 260)
       })
-      WORD_AT.forEach((at, i) =>
-        add(at, () => root.querySelector(`[data-word="${i}"]`)?.classList.add('is-in')),
-      )
+      add(T.typed + 450, () => newest?.classList.remove('is-new'))
 
       // Keyboard and hands dissolve out on their own, then stop entirely.
       phase(T.dissolve, 'is-dissolve')
@@ -352,11 +371,13 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
 
         <p className="intro__words">
           {WORDS.map((w, i) => (
-            <span className={`iw${i === 2 ? ' iw--accent' : ''}`} data-word={i} key={w}>
-              <span className="iw__rise">
-                <span className="iw__bob" style={{ '--b': `${i * -0.7}s` } as CSSProperties}>
-                  {w}
-                </span>
+            <span className={`iw${i === WORDS.length - 1 ? ' iw--accent' : ''}`} data-word={i} key={w.text}>
+              <span className="iw__bob" style={{ '--b': `${i * -0.7}s` } as CSSProperties}>
+                {[...w.text].map((ch, j) => (
+                  <span className="ic" data-ci={w.start + j} key={j}>
+                    {ch}
+                  </span>
+                ))}
               </span>
             </span>
           ))}
@@ -367,25 +388,27 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
             <span className="intro-kb__shadow" />
             <div className="intro-kb">
               {ROWS.map((row, r) => (
-                <div className={`intro-kb__row intro-kb__row--${r}`} key={r}>
+                <div className="intro-kb__row" key={r}>
                   {row.map((k) => (
                     <span
-                      className={`intro-key${k === 'space' ? ' intro-key--space' : ''}`}
-                      data-key={k === '.' ? 'dot' : k === ',' ? 'comma' : k}
-                      key={k}
+                      className={`intro-key${k.w ? ' intro-key--wide' : ''}`}
+                      data-key={k.id}
+                      key={k.id}
+                      style={{ '--x': k.x, '--w': k.w ?? 1 } as CSSProperties}
                     >
                       <span className="intro-key__cap">
                         <span className="intro-key__glow" />
-                        <span className="intro-key__legend">{k === 'space' ? '' : k}</span>
+                        <span className="intro-key__legend">{k.label}</span>
+                        <i className="intro-key__c" />
                       </span>
                     </span>
                   ))}
                 </div>
               ))}
             </div>
+            <Hand side="left" />
+            <Hand side="right" />
           </div>
-          <Hand side="left" />
-          <Hand side="right" />
         </div>
 
         <p className="intro__phrase">
