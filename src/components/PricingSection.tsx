@@ -68,7 +68,7 @@ export function PricingSection() {
         <div className="panel trigger">
           <div className="panel__main">
             <div className="panel__copy stagger">
-              <SectionIntro num="05" label="The Taply card" />
+              <SectionIntro num="06" label="The Taply card" />
               <h2 className="h2 panel__title">Your next introduction starts here.</h2>
               <p className="lede">
                 One versatile plastic NFC card, connected to your personalised digital business profile.

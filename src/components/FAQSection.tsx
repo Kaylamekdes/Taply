@@ -76,7 +76,7 @@ export function FAQSection() {
     <section className="section faq" id="faq">
       <div className="container faq__grid">
         <div className="faq__head stagger">
-          <SectionIntro num="06" label="Questions" />
+          <SectionIntro num="07" label="Questions" />
           <h2 className="h2">
             Simple answers.
             <br />

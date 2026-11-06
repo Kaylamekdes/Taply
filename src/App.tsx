@@ -5,6 +5,7 @@ import { ProblemSection } from './components/ProblemSection'
 import { HowItWorks } from './components/HowItWorks'
 import { FeaturesSection } from './components/FeaturesSection'
 import { DigitalProfileSection } from './components/DigitalProfileSection'
+import { YourCardSection } from './components/YourCardSection'
 import { PricingSection } from './components/PricingSection'
 import { FAQSection } from './components/FAQSection'
 import { RealWorldSection } from './components/RealWorldSection'
@@ -30,6 +31,7 @@ export default function App() {
         <HowItWorks />
         <FeaturesSection />
         <DigitalProfileSection />
+        <YourCardSection />
         <PricingSection />
         <FAQSection />
         <RealWorldSection />

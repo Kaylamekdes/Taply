@@ -10,9 +10,10 @@ through so every reveal has run, then prints a table:
   - L / R: left and right content edges of each section (eyebrow, heading,
     grid or panel). Every L must match the container's left edge, and every R
     the container's right edge.
-  - Product objects (hero cards, profile phone and card, pricing cards):
+  - Product objects (hero cards, profile phone and card, the Your card
+    card, pricing cards):
     their closest distance to the viewport edge (>= 24px required), and for
-    the profile card and pricing cards, their inset inside their stage
+    the profile card, the Your card card and the pricing cards, their inset inside their stage
     (>= 24px required), checked at the float and pointer-parallax extremes.
 Decorative full-bleed shapes (lime circle and leaf, violet fields, the
 real-world photo) are not measured. Exits non-zero if anything fails.
@@ -45,6 +46,7 @@ SECTIONS = [
     ["how it works", "#how .eyebrow", "#how .steps"],
     ["features", "#features .eyebrow", "#features .fgrid"],
     ["profile", "#profile .profile__visual", "#profile .profile__copy"],
+    ["your card", "#card .eyebrow", "#card .ycard"],
     ["pricing", "#pricing .panel", "#pricing .panel"],
     ["faq", "#faq .eyebrow", "#faq .accordion"],
     ["real world", None, ".real__copy .usecases"],
@@ -72,6 +74,7 @@ PRODUCTS = """() => {
     ['hero front card', '.stage__card--front .pcard', null],
     ['profile phone', '.pstage__phone .phone', null],
     ['profile card', '.pstage__card .pcard', '.pstage'],
+    ['your card', '.ycard__card', '.ycard__stage'],
     ['pricing rear card', '.panel__card--rear .pcard', '.panel__visual'],
     ['pricing front card', '.panel__card--front .pcard', '.panel__visual'],
   ];
@@ -186,7 +189,7 @@ def main():
 
     print(f"\nProduct objects: worst case over float and pointer parallax (px). Need >= {MIN_GAP}.\n")
     print(f"{'object':<20}" + "".join(f"{w:>24}" for w in WIDTHS))
-    for k in ["hero rear card", "hero front card", "profile phone", "profile card", "pricing rear card", "pricing front card"]:
+    for k in ["hero rear card", "hero front card", "profile phone", "profile card", "your card", "pricing rear card", "pricing front card"]:
         row = f"{k:<20}"
         for w in WIDTHS:
             v = results[w]["products"].get(k)
