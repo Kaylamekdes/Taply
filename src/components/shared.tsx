@@ -1,7 +1,14 @@
 import type { ReactNode } from 'react'
 
-/** The only confirmed purchase destination. No checkout is fabricated. */
-export const ORDER_URL = 'https://taply.com'
+/*
+ * Orders go to WhatsApp. Edit the number or the prefilled message here; every
+ * order button and the footer link use ORDER_URL. No checkout is built.
+ */
+export const WHATSAPP_NUMBER = '254140986500' // Kenya, international format without + or leading 0 (from 0140986500)
+export const ORDER_MESSAGE = "Hi Taply! I'd like to order a Taply card (KES 5,500). Please help me get started."
+export const ORDER_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(ORDER_MESSAGE)}`
+/** Screen-reader suffix for links that open WhatsApp. */
+export const ORDER_LINK_NOTE = ' (opens WhatsApp in a new tab)'
 
 export function Arrow({ direction = 'up-right' }: { direction?: 'up-right' | 'down' }) {
   return (
@@ -59,15 +66,20 @@ type CTAProps = {
   variant: 'violet' | 'lime' | 'white' | 'ghost'
   children: ReactNode
   external?: boolean
+  /** Visually hidden text appended to the label (e.g. ORDER_LINK_NOTE). */
+  srNote?: string
   className?: string
   onClick?: () => void
 }
 
-export function CTA({ href, variant, children, external, className = '', onClick }: CTAProps) {
-  const externalProps = external ? { target: '_blank', rel: 'noreferrer' } : {}
+export function CTA({ href, variant, children, external, srNote, className = '', onClick }: CTAProps) {
+  const externalProps = external ? { target: '_blank', rel: 'noopener noreferrer' } : {}
   return (
     <a className={`cta cta--${variant} ${className}`} href={href} onClick={onClick} {...externalProps}>
-      <span className="cta__label">{children}</span>
+      <span className="cta__label">
+        {children}
+        {srNote && <span className="sr-only">{srNote}</span>}
+      </span>
       {variant === 'ghost' ? (
         <span className="cta__inline-arrow">
           <Arrow direction="down" />

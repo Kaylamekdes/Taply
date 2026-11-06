@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
-import { CTA, ORDER_URL, SectionIntro } from './shared'
+import { CTA, ORDER_LINK_NOTE, ORDER_URL, SectionIntro } from './shared'
 import { ProductCard } from './ProductCard'
 
 const PRICE = 5500
@@ -85,7 +85,7 @@ export function PricingSection() {
               </p>
 
               <div className="panel__action">
-                <CTA href={ORDER_URL} variant="lime" external>
+                <CTA href={ORDER_URL} variant="lime" external srNote={ORDER_LINK_NOTE}>
                   Get your Taply card
                 </CTA>
                 <p className="panel__note">One-off cost. Update your digital profile anytime at no extra cost, and share it with a tap or scan. No app needed for anyone you meet.</p>

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { BrandMark, CTA } from './shared'
+import { BrandMark, CTA, ORDER_LINK_NOTE, ORDER_URL } from './shared'
 
 const LINES = [
   { words: ['Make', 'the'] },
@@ -38,7 +38,7 @@ export function FinalCTA() {
         </h2>
         <p className="lede final__lede">Give people a simple way to remember you.</p>
         <div>
-          <CTA href="#pricing" variant="white">
+          <CTA href={ORDER_URL} variant="white" external srNote={ORDER_LINK_NOTE}>
             Get your Taply card — KES&nbsp;5,500
           </CTA>
         </div>

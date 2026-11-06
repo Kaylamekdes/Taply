@@ -42,8 +42,8 @@ the wordmark keeps its size and position.
 ## Notes
 
 - Fonts (Manrope, DM Mono) are self-hosted through Fontsource instead of the Google Fonts `@import`; same families and weights.
-- Nav, hero and final CTAs scroll to `#pricing`. The pricing CTA and footer link go to `https://taply.com`, the only confirmed purchase destination. No checkout is built.
+- Orders go to WhatsApp: every "Get your Taply card" button (nav, mobile menu, hero, pricing, final CTA) and the footer's "Order on WhatsApp" link open a `wa.me` chat with a prefilled message, in a new tab. The number (`WHATSAPP_NUMBER`) and message (`ORDER_MESSAGE`) are set in `src/components/shared.tsx`, which builds `ORDER_URL` from them. The footer keeps a link to `https://taply.com`. No checkout is built.
 - The Amara Mensah profile is the sample from the brand guideline, shown as a product demonstration (not a testimonial). It carries no on-page caption; screen readers hear it described as a sample profile.
-- Nothing is invented beyond the spec's confirmed facts (no delivery, warranty, payment, dimension or contact details).
+- Nothing is invented beyond the spec's confirmed facts (no delivery, warranty, payment or dimension details). The only ordering contact is the WhatsApp link above; the number is not shown as text on the page.
 - Intro sound: browsers block autoplay audio, so the key clicks play only after the visitor's first tap, click, touch or key press (the speaker button pulses until then); the iOS silent switch also mutes web audio. For troubleshooting, add `?audiodebug` to the URL to log the audio state and every scheduled sound to the console (off by default).
 - The FAQ answers on production time ("How long does it take to get my card?") and payment terms ("What are the payment terms?") were supplied by the project owner and should be confirmed with Taply before launch.

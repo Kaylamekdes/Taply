@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BrandMark, CTA, MenuIcon } from './shared'
+import { BrandMark, CTA, MenuIcon, ORDER_LINK_NOTE, ORDER_URL } from './shared'
 
 const LINKS = [
   { href: '#how', label: 'How it works' },
@@ -66,7 +66,7 @@ export function Navigation() {
             ))}
           </ul>
 
-          <CTA href="#pricing" variant="violet" className="nav__cta">
+          <CTA href={ORDER_URL} variant="violet" className="nav__cta" external srNote={ORDER_LINK_NOTE}>
             Get your Taply card
           </CTA>
 
@@ -94,7 +94,7 @@ export function Navigation() {
               </li>
             ))}
           </ul>
-          <CTA href="#pricing" variant="violet" onClick={close}>
+          <CTA href={ORDER_URL} variant="violet" onClick={close} external srNote={ORDER_LINK_NOTE}>
             Get your Taply card
           </CTA>
         </div>

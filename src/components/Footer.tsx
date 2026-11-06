@@ -1,4 +1,4 @@
-import { BrandMark, ORDER_URL } from './shared'
+import { BrandMark, ORDER_LINK_NOTE, ORDER_URL } from './shared'
 
 export function Footer() {
   return (
@@ -29,8 +29,13 @@ export function Footer() {
             <h2 className="mono-label footer__h">Taply</h2>
             <ul>
               <li>
-                <a href={ORDER_URL} target="_blank" rel="noreferrer">
+                <a href="https://taply.com" target="_blank" rel="noreferrer">
                   taply.com
+                </a>
+              </li>
+              <li>
+                <a href={ORDER_URL} target="_blank" rel="noopener noreferrer">
+                  Order on WhatsApp<span className="sr-only">{ORDER_LINK_NOTE}</span>
                 </a>
               </li>
             </ul>

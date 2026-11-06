@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import type { CSSProperties, PointerEvent } from 'react'
-import { CTA } from './shared'
+import { CTA, ORDER_LINK_NOTE, ORDER_URL } from './shared'
 import { ProductCard } from './ProductCard'
 
 const clamp = (v: number) => Math.max(-1, Math.min(1, v))
@@ -71,7 +71,7 @@ export function Hero() {
             Tap or scan to open your profile. People save your contact, with no app needed.
           </p>
           <div className="hero__actions hero__in" style={{ '--i': 4 } as CSSProperties}>
-            <CTA href="#pricing" variant="violet">
+            <CTA href={ORDER_URL} variant="violet" external srNote={ORDER_LINK_NOTE}>
               Get your Taply card — KES&nbsp;5,500
             </CTA>
             <CTA href="#how" variant="ghost">
