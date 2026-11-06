@@ -12,6 +12,11 @@ import { RealWorldSection } from './components/RealWorldSection'
 import { FinalCTA } from './components/FinalCTA'
 import { Footer } from './components/Footer'
 import { IntroSequence } from './components/IntroSequence'
+import { lazy, Suspense } from 'react'
+import { AUDIO_DEBUG } from './hooks/introAudio'
+
+// Loaded only with ?audiodebug=1 (on-screen audio diagnostics for phones).
+const AudioDebugPanel = AUDIO_DEBUG ? lazy(() => import('./components/AudioDebugPanel')) : null
 
 export default function App() {
   useReveal()
@@ -39,6 +44,11 @@ export default function App() {
       </main>
       <Footer />
       <IntroSequence />
+      {AudioDebugPanel && (
+        <Suspense fallback={null}>
+          <AudioDebugPanel />
+        </Suspense>
+      )}
     </>
   )
 }

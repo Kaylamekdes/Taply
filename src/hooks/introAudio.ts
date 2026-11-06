@@ -1,31 +1,41 @@
 /*
  * Synthesised sound for the opening sequence (Web Audio API, no files).
  *
- * One engine per page (module-level singleton): it survives re-renders,
- * StrictMode remounts and the intro unmounting, and its AudioContext is never
- * closed (only suspended once the intro is over).
+ * One engine per page (module-level singleton, created lazily): it survives
+ * re-renders, StrictMode remounts and the intro unmounting. No React cleanup
+ * closes it; once the intro is over it is only suspended. If the browser ever
+ * closes the context, a fresh one is built on the next use.
  *
- * Browsers keep audio locked until a user gesture. The context is created
- * inside the first tap, click or key press (as iOS Safari expects), resumed
- * there, and a one-sample silent buffer is played to unlock output. Every
- * gesture retries until the context is 'running'; anything else ('suspended',
- * iOS's 'interrupted') counts as locked. If the page already has a user
- * activation, the context is created straight away instead.
+ * Unlocking (iOS Safari is the strictest): audio only starts from a user
+ * activation, and on iOS that means touchend, pointerup, click or keydown,
+ * not touchstart or a touch pointerdown. Each of those events calls
+ * `unlock()` until the context is confirmed 'running'. Inside the event it
+ * resumes the context, plays a one-sample silent buffer and a tiny silent
+ * <audio> element (both started synchronously, as iOS requires), then awaits
+ * the resume. 'suspended', 'interrupted' and 'closed' all count as locked.
  *
- * Diagnostics: add `?audiodebug` to the URL to log the context state, gains,
- * the mute flag and every scheduled sound (console.debug). Off by default.
+ * navigator.audioSession.type = 'playback' (iOS 16.4+) lets the sound play
+ * with the ringer switch on silent.
+ *
+ * Diagnostics: `?audiodebug=1` logs to the console and shows an on-screen
+ * panel (AudioDebugPanel). Off by default.
  */
 
-// Only the visitor's explicit mute is remembered (per session). Keys from
-// earlier versions are ignored and removed, so an old value can't mute sound.
+// Only the visitor's explicit mute (the sound button) is remembered, per
+// session. Keys from earlier versions are ignored and deleted.
 const PREF_KEY = 'taply-intro-sound-v2'
 const LEGACY_KEYS = ['taply-sound']
 
-const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('audiodebug')
+export const AUDIO_DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('audiodebug')
+const DEBUG = AUDIO_DEBUG
 const debug = (...args: unknown[]) => {
   if (DEBUG) console.debug('[intro-audio]', ...args)
 }
-const warn = (what: string, err: unknown) => console.warn(`[intro-audio] ${what}`, err)
+let lastError: string | null = null
+const warn = (what: string, err: unknown) => {
+  lastError = `${what}: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`
+  console.warn(`[intro-audio] ${what}`, err)
+}
 
 // Seconds between "now" and when a sound starts, so its whole envelope is
 // rendered even if the audio thread is a block ahead (larger on iOS).
@@ -36,8 +46,8 @@ function migratePrefs() {
     try {
       window.sessionStorage.removeItem(k)
       window.localStorage.removeItem(k)
-    } catch {
-      /* storage unavailable: nothing to migrate */
+    } catch (e) {
+      warn('storage unavailable while removing old sound keys', e)
     }
   }
 }
@@ -45,7 +55,8 @@ function migratePrefs() {
 export function readSoundPref(): boolean {
   try {
     return window.sessionStorage.getItem(PREF_KEY) !== 'off'
-  } catch {
+  } catch (e) {
+    warn('storage unavailable, sound defaults to on', e)
     return true
   }
 }
@@ -194,21 +205,74 @@ export async function renderClickOffline(pitch = 1): Promise<Float32Array> {
   return buf.getChannelData(0)
 }
 
+
 // ---------------------------------------------------------------- engine
+type AudioSessionNav = Navigator & { audioSession?: { type: string } }
+
+/** A 10ms silent mono WAV, as a data URI (for the <audio> unlock on iOS). */
+function silentWavUri(): string {
+  const samples = 80 // 10ms at 8kHz
+  const buf = new ArrayBuffer(44 + samples * 2)
+  const v = new DataView(buf)
+  const text = (at: number, s: string) => [...s].forEach((ch, i) => v.setUint8(at + i, ch.charCodeAt(0)))
+  text(0, 'RIFF')
+  v.setUint32(4, 36 + samples * 2, true)
+  text(8, 'WAVE')
+  text(12, 'fmt ')
+  v.setUint32(16, 16, true)
+  v.setUint16(20, 1, true) // PCM
+  v.setUint16(22, 1, true) // mono
+  v.setUint32(24, 8000, true)
+  v.setUint32(28, 16000, true)
+  v.setUint16(32, 2, true)
+  v.setUint16(34, 16, true)
+  text(36, 'data')
+  v.setUint32(40, samples * 2, true)
+  let bin = ''
+  new Uint8Array(buf).forEach((b) => (bin += String.fromCharCode(b)))
+  return `data:audio/wav;base64,${btoa(bin)}`
+}
+
+export function browserName(ua = navigator.userAgent): string {
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+  const pick =
+    (/CriOS\/([\d.]+)/.exec(ua) && 'Chrome') ||
+    (/FxiOS\/([\d.]+)/.exec(ua) && 'Firefox') ||
+    (/EdgiOS\/|Edg\/([\d.]+)/.exec(ua) && 'Edge') ||
+    (/Chrome\/([\d.]+)/.exec(ua) && 'Chrome') ||
+    (/Firefox\/([\d.]+)/.exec(ua) && 'Firefox') ||
+    (/Version\/([\d.]+).*Safari/.exec(ua) && 'Safari') ||
+    'Unknown'
+  const os = /OS (\d+[_\d]*) like Mac OS X/.exec(ua)
+  return `${pick}${ios ? ' (iOS' + (os ? ' ' + os[1].replace(/_/g, '.') : '') + ')' : ''}`
+}
+
 function createIntroAudio() {
   migratePrefs()
   let enabled = readSoundPref()
   let ctx: AudioContext | null = null
   let chain: Chain | null = null
   let onChange: (() => void) | null = null
+  let gesture: string | null = null
+  let scheduled = 0
+  let htmlAudio: HTMLAudioElement | null = null
+
+  // iOS 16.4+: play through the ringer switch's silent mode.
+  try {
+    const nav = navigator as AudioSessionNav
+    if (nav.audioSession) nav.audioSession.type = 'playback'
+  } catch (e) {
+    warn('could not set navigator.audioSession.type', e)
+  }
+
   const notify = () => {
     debug('state ->', ctx?.state)
     onChange?.()
   }
 
-  /** Creates the context and its output chain once; never closed. */
+  /** The context and its output chain; rebuilt only if the browser closed it. */
   const build = (): AudioContext | null => {
-    if (ctx) return ctx
+    if (ctx && ctx.state !== 'closed') return ctx
     const Ctor = audioCtor()
     if (!Ctor) return null
     try {
@@ -224,37 +288,71 @@ function createIntroAudio() {
     return ctx
   }
 
-  // Anything but 'running' ('suspended', iOS Safari's 'interrupted') counts as locked.
-  const resume = () => {
-    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return
-    ctx.resume().then(notify, (e) => debug('resume refused', e))
+  const isRunning = () => !!ctx && ctx.state === 'running'
+
+  /** Resume without a gesture (visibility, pageshow): may be refused, never throws. */
+  const tryResume = () => {
+    if (!enabled || !ctx || ctx.state === 'running' || ctx.state === 'closed') return
+    ctx.resume().then(notify, (e) => warn('resume() refused', e))
   }
 
-  /** From inside a user gesture: create (first time), resume, and play a silent sample (iOS). */
-  const unlock = () => {
-    if (!enabled) return
+  /**
+   * Must be called synchronously from a touchend / pointerup / click / keydown
+   * handler. Starts the resume, a silent buffer and a silent <audio> inside the
+   * gesture, then awaits the resume. Returns whether audio is now running.
+   */
+  const unlock = async (eventType = 'gesture', force = false): Promise<boolean> => {
+    gesture = eventType
+    if (!enabled && !force) return false
     const c = build()
-    if (!c || c.state === 'running') return
-    debug('unlock attempt, state', c.state)
-    resume()
+    if (!c) return false
+    if (c.state === 'running') return true
+    debug('unlock attempt from', eventType, 'state', c.state)
+    let resuming: Promise<void> | null = null
+    try {
+      resuming = c.resume()
+    } catch (e) {
+      warn('resume() threw', e)
+    }
     try {
       const silent = c.createBufferSource()
       silent.buffer = c.createBuffer(1, 1, c.sampleRate)
       silent.connect(c.destination)
       silent.start(0)
     } catch (e) {
-      warn('silent unlock sample failed', e)
+      warn('silent buffer failed', e)
     }
+    try {
+      if (!htmlAudio) {
+        htmlAudio = new Audio(silentWavUri())
+        htmlAudio.loop = false
+        htmlAudio.preload = 'auto'
+        htmlAudio.setAttribute('playsinline', '')
+      }
+      htmlAudio.currentTime = 0
+      htmlAudio.play().catch((e) => warn('silent <audio> play() refused', e))
+    } catch (e) {
+      warn('silent <audio> failed', e)
+    }
+    try {
+      if (resuming) await resuming
+    } catch (e) {
+      warn('resume() refused', e)
+    }
+    notify()
+    return isRunning()
   }
 
-  const play = (name: string, fn: (ch: Chain, t: number) => void) => {
-    if (!enabled || !ctx || !chain || ctx.state !== 'running') {
-      debug(name, 'skipped: enabled', enabled, 'state', ctx?.state ?? 'no context')
+  // Each sound checks the state at the moment it fires: play if running, skip if not.
+  const play = (name: string, fn: (ch: Chain, t: number) => void, force = false) => {
+    if ((!enabled && !force) || !ctx || !chain || ctx.state !== 'running') {
+      debug(name, 'skipped: sound', enabled ? 'on' : 'off', 'state', ctx?.state ?? 'no context')
       return
     }
     const t = ctx.currentTime + LOOKAHEAD
     try {
       fn(chain, t)
+      scheduled++
       debug(name, 'scheduled at', t.toFixed(3), 'state', ctx.state, 'master', chain.master.gain.value, 'clicks', chain.clickBus.gain.value)
     } catch (e) {
       warn(`${name} failed`, e)
@@ -262,10 +360,7 @@ function createIntroAudio() {
   }
 
   return {
-    /**
-     * When the intro starts. With a user activation already on the page the
-     * context is created and resumed now; otherwise the first gesture does it.
-     */
+    /** When the intro starts: with a user activation already on the page, start now. */
     start() {
       const active = !!(navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation
         ?.hasBeenActive
@@ -273,15 +368,16 @@ function createIntroAudio() {
       if (!enabled) return
       if (active) {
         build()
-        resume()
+        tryResume()
       }
     },
 
+    /** Call from a touchend / pointerup / click / keydown handler. */
     unlock,
 
-    /** True once audio is actually playing (not locked or suspended). */
+    /** True only when the context is confirmed 'running'. */
     get running() {
-      return !!ctx && ctx.state === 'running'
+      return isRunning()
     },
 
     /** False when the browser has no Web Audio at all. */
@@ -298,12 +394,13 @@ function createIntroAudio() {
       return enabled
     },
 
+    /** Only the sound button calls this. */
     setEnabled(on: boolean) {
       enabled = on
       writeSoundPref(on)
       debug('sound', on ? 'on' : 'off')
-      if (on) unlock()
-      else ctx?.suspend().catch((e) => warn('suspend failed', e))
+      if (on) void unlock('sound button')
+      else ctx?.suspend().catch((e) => warn('suspend() failed', e))
     },
 
     /** One key press; `pitch` below 1 for Shift and the space bar. */
@@ -319,14 +416,36 @@ function createIntroAudio() {
       play('shimmer', playShimmer)
     },
 
+    /** Debug panel: unlock from this tap (even if muted) and play one click. */
+    async testClick() {
+      const ok = await unlock('test button', true)
+      play('test click', (ch, t) => playClick(ch, t), true)
+      return ok
+    },
+
     /** Tab hidden, or the intro is over: pause output (the context stays alive). */
     suspend() {
-      if (ctx && ctx.state === 'running') ctx.suspend().catch((e) => warn('suspend failed', e))
+      if (ctx && ctx.state === 'running') ctx.suspend().catch((e) => warn('suspend() failed', e))
     },
 
     /** Tab visible again / page restored from the back-forward cache: try again. */
     resume() {
-      if (enabled) resume()
+      tryResume()
+    },
+
+    /** Live values for the debug panel. */
+    diagnostics() {
+      return {
+        state: ctx ? ctx.state : 'no context yet',
+        audioSession: (navigator as AudioSessionNav).audioSession?.type ?? 'not supported',
+        gesture: gesture ?? 'none yet',
+        masterGain: chain ? chain.master.gain.value : null,
+        clickGain: chain ? chain.clickBus.gain.value : null,
+        muted: !enabled,
+        scheduled,
+        lastError: lastError ?? 'none',
+        browser: browserName(),
+      }
     },
   }
 }
@@ -334,7 +453,7 @@ function createIntroAudio() {
 export type IntroAudio = ReturnType<typeof createIntroAudio>
 
 let engine: IntroAudio | null = null
-/** The page's single audio engine, created on first use. */
+/** The page's single audio engine, created on first use and never closed. */
 export function getIntroAudio(): IntroAudio {
   if (!engine) engine = createIntroAudio()
   return engine
