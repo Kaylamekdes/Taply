@@ -45,7 +45,6 @@ export function DigitalProfileSection() {
                 <ProductCard variant="dark" />
               </div>
             </div>
-            <p className="pstage__note">Product demonstration · sample profile</p>
           </div>
         </div>
       </div>

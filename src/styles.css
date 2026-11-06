@@ -1484,7 +1484,7 @@ a {
   position: relative;
   width: min(100%, 560px);
   aspect-ratio: 1 / 1.1;
-  margin: 0 auto 44px;
+  margin: 0 auto;
 }
 .pstage__field {
   position: absolute;
@@ -1533,8 +1533,7 @@ a {
     translate 1000ms var(--ease) 450ms;
 }
 .js .pstage .phone__links li,
-.js .pstage .phone__save,
-.js .pstage__note {
+.js .pstage .phone__save {
   opacity: 0;
   translate: 0 10px;
   transition:
@@ -1562,9 +1561,6 @@ a {
 .pstage .phone__links li:nth-child(6) {
   --row-d: 1220ms;
 }
-.pstage__note {
-  --row-d: 1300ms;
-}
 .js .profile__visual.in .pstage__field {
   opacity: 1;
   transform: none;
@@ -1572,8 +1568,7 @@ a {
 .js .profile__visual.in .pstage__phone > .phone,
 .js .profile__visual.in .pstage__card,
 .js .profile__visual.in .phone__links li,
-.js .profile__visual.in .phone__save,
-.js .profile__visual.in .pstage__note {
+.js .profile__visual.in .phone__save {
   opacity: 1;
   translate: none;
 }
@@ -1615,17 +1610,6 @@ a {
   }
 }
 
-.pstage__note {
-  position: absolute;
-  left: 0;
-  bottom: -44px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
-}
 
 /* ==========================================================================
    05 — Pricing
@@ -2577,7 +2561,6 @@ a {
   .js .pstage__card,
   .js .pstage .phone__links li,
   .js .pstage .phone__save,
-  .js .pstage__note,
   .js .panel__card,
   .js .final__title .w__in,
   .acc__inner p,
