@@ -49,8 +49,8 @@ export function BrandMark({ variant = 'logo', className, alt = '' }: BrandMarkPr
     reversed: '/brand/taply-logo-reversed.png',
     symbol: '/brand/taply-symbol.png',
   }[variant]
-  // Lockup canvas is 1738×453 after the symbol enlargement (see scripts/resize-logo-symbol.py).
-  const dims = variant === 'symbol' ? { width: 518, height: 405 } : { width: 1738, height: 453 }
+  // Lockup canvas is 1794×479 after the symbol enlargement (see scripts/resize-logo-symbol.py).
+  const dims = variant === 'symbol' ? { width: 518, height: 405 } : { width: 1794, height: 479 }
   return <img className={className} src={src} alt={alt} decoding="async" {...dims} />
 }
 

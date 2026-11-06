@@ -12,7 +12,7 @@ import {
   useIntroTimeline,
 } from '../hooks/useIntro'
 import type { Cue, Finger, Keystroke, Side } from '../hooks/useIntro'
-import { createIntroAudio } from '../hooks/introAudio'
+import { getIntroAudio } from '../hooks/introAudio'
 import type { IntroAudio } from '../hooks/introAudio'
 
 /*
@@ -114,8 +114,8 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
   const flyRef = useRef<HTMLDivElement>(null)
   const liveRef = useRef<HTMLParagraphElement>(null)
   const soundBtnRef = useRef<HTMLButtonElement>(null)
-  const audioRef = useRef<IntroAudio | null>(null)
-  if (!audioRef.current) audioRef.current = createIntroAudio()
+  // The page's one audio engine (module singleton): survives remounts, never closed.
+  const audioRef = useRef<IntroAudio>(getIntroAudio())
   const [soundOn, setSoundOn] = useState(audioRef.current.enabled)
   // Sound is on but the browser hasn't let it play yet (no gesture so far).
   const [locked, setLocked] = useState(false)
@@ -129,7 +129,7 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
     if (finishedRef.current) return
     finishedRef.current = true
     stopRef.current()
-    audioRef.current?.close()
+    audioRef.current.suspend()
 
     const html = document.documentElement
     const root = rootRef.current
@@ -347,13 +347,13 @@ function IntroOverlay({ onDone }: { onDone: () => void }) {
     if (!finishedRef.current) html.classList.add('intro-playing')
     setPageInert(true)
 
-    // Audio, the same on every load (nothing about unlocking is stored): create
-    // the context now and try to start it. Browsers usually block that until a
-    // gesture, so while it isn't running, the next tap, click or key press
-    // anywhere unlocks it from inside that handler. Any state but 'running'
-    // ('suspended', iOS Safari's 'interrupted') counts as locked, and the
-    // listeners come back if it drops out of 'running' later.
-    const audio = audioRef.current!
+    // Audio, the same on every load (nothing about unlocking is stored).
+    // Browsers block sound until a gesture, so while it isn't running, every
+    // tap, click or key press anywhere creates/resumes the context from inside
+    // that handler, until it is 'running'. Any other state ('suspended', iOS
+    // Safari's 'interrupted') counts as locked, and the listeners come back if
+    // it drops out of 'running' later.
+    const audio = audioRef.current
     const GESTURES = ['pointerdown', 'touchstart', 'touchend', 'pointerup', 'click', 'keydown'] as const
     let listening = false
     const unlock = (e: Event) => {

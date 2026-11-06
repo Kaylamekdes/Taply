@@ -24,15 +24,18 @@ npm run preview  # serve the production build
 
 ### Logo deviation (authorised)
 
-The symbol in `taply-logo.png` and `taply-logo-reversed.png` has been enlarged by 17% so it sits at a
-similar visual weight to the wordmark. This was explicitly authorised by the site owner as an exception to
-the "never modify the logo" rule. Only the symbol was scaled (Lanczos) and repositioned: it stays
-vertically centred on the wordmark, the gap between symbol and wordmark scales with it, and nothing was
-recoloured, redrawn, skewed or given effects. The wordmark pixels are untouched. The canvas grew from
-1649×453 to 1738×453; `BrandMark` and the fixed-width logo slots were updated to match.
+The symbol in `taply-logo.png` and `taply-logo-reversed.png` has been enlarged by 30% so it holds its own
+next to the wordmark. This was explicitly authorised by the site owner as an exception to the "never modify
+the logo" rule. Only the symbol was scaled (Lanczos) and repositioned: it is vertically centred on the
+wordmark's cap height (top of the "T" to the baseline), so it now rises a little above the "T", and the gap
+to the wordmark equals the symbol's own bar thickness. Nothing was recoloured, redrawn, skewed or given
+effects, and the wordmark pixels are untouched. The canvas grew from 1649×453 to 1794×479 (rows added at the
+top only); `BrandMark` and the logo slots (nav, footer, product cards, the "Your card" card) were updated so
+the wordmark keeps its size and position.
 
 - Originals: `public/brand/originals/`
-- Script: `python scripts/resize-logo-symbol.py [scale]` (always reads from the originals, default scale 1.17)
+- Script: `python scripts/resize-logo-symbol.py [scale]` (always reads from the originals, so scaling never
+  compounds; default scale 1.30)
 - If official export files arrive, ask the brand owner for a lockup with the larger symbol rather than
   re-running the script on them, since raster upscaling slightly softens the symbol.
 
@@ -42,5 +45,5 @@ recoloured, redrawn, skewed or given effects. The wordmark pixels are untouched.
 - Nav, hero and final CTAs scroll to `#pricing`. The pricing CTA and footer link go to `https://taply.com`, the only confirmed purchase destination. No checkout is built.
 - The Amara Mensah profile is the sample from the brand guideline, shown as a product demonstration (not a testimonial). It carries no on-page caption; screen readers hear it described as a sample profile.
 - Nothing is invented beyond the spec's confirmed facts (no delivery, warranty, payment, dimension or contact details).
-- Intro sound: browsers block autoplay audio, so the key clicks play only after the visitor's first tap, click, touch or key press (the speaker button pulses until then); the iOS silent switch also mutes web audio.
+- Intro sound: browsers block autoplay audio, so the key clicks play only after the visitor's first tap, click, touch or key press (the speaker button pulses until then); the iOS silent switch also mutes web audio. For troubleshooting, add `?audiodebug` to the URL to log the audio state and every scheduled sound to the console (off by default).
 - The FAQ answers on production time ("How long does it take to get my card?") and payment terms ("What are the payment terms?") were supplied by the project owner and should be confirmed with Taply before launch.

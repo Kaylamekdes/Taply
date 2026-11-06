@@ -26,7 +26,6 @@ function CardFront({ className = '' }: { className?: string }) {
         <BrandMark variant="reversed" className="ycard__logo" />
         <span className="ycard__tagline">Digital identity, made human.</span>
         <span className="pcard__gloss" />
-        <span className="ycard__shine" />
       </div>
     </div>
   )
@@ -45,7 +44,6 @@ function CardBack({ className = '' }: { className?: string }) {
           <img className="ycard__qr" src="/brand/taply-qr.svg" alt="" width="264" height="264" decoding="async" />
         </div>
         <span className="pcard__gloss" />
-        <span className="ycard__shine" />
       </div>
     </div>
   )
@@ -163,6 +161,8 @@ function CardStage() {
                 <div className="ycard__card" onTransitionEnd={onFlipEnd}>
                   <CardFront />
                   <CardBack />
+                  {/* One shared highlight for the whole card: one sweep per flip. */}
+                  <span className="ycard__sweep" />
                   <span className="ycard__edge ycard__edge--l" />
                   <span className="ycard__edge ycard__edge--r" />
                   <span className="ycard__edge ycard__edge--t" />
