@@ -8,35 +8,34 @@ import { verifyToken } from './_lib/token.js'
 import { clientIp, isDeployed, sendJson } from './_lib/http.js'
 import {
   EMPTY_BRIEF,
-  LANGUAGES,
   MAX,
   MAX_CARD_FILES,
-  MAX_COLOURS,
-  MAX_EXTRA_LINKS,
   MAX_FILE_BYTES,
   MAX_FILES,
   MAX_TOTAL_BYTES,
+  MAX_SOCIALS,
   MIN_FILL_SECONDS,
+  PLATFORMS,
   validateBrief,
 } from '../src/onboard/limits.js'
-import type { Brief } from '../src/onboard/limits.js'
+import type { Brief, Platform } from '../src/onboard/limits.js'
 
 /*
  * POST /api/submit (multipart/form-data)
  *   header x-taply-token: the signed link token (checked before the body is read)
  *   fields: brief (JSON), elapsed (seconds on the form), fax (honeypot, must be empty)
- *   files:  logo, photo, card (up to 2)
+ *   files:  logo, photo, card (up to 2: front and back)
  * Validates everything, then emails the brief with the files attached to
  * NOTIFY_EMAIL through Gmail SMTP. Nothing is stored on the server.
  */
 
-type Kind = 'png' | 'jpg' | 'webp' | 'svg' | 'pdf'
+type Kind = 'png' | 'jpg' | 'webp' | 'svg' | 'pdf' | 'heic'
 type Upload = { field: string; kind: Kind; data: Buffer }
 
 const ALLOWED: Record<string, Kind[]> = {
-  logo: ['png', 'jpg', 'webp', 'svg'],
-  photo: ['png', 'jpg', 'webp'],
-  card: ['png', 'jpg', 'webp', 'pdf'],
+  logo: ['jpg', 'png', 'webp', 'pdf', 'svg'],
+  photo: ['jpg', 'png', 'webp', 'heic'],
+  card: ['jpg', 'png', 'webp', 'heic', 'pdf'],
 }
 const MIME: Record<Kind, string> = {
   png: 'image/png',
@@ -44,6 +43,7 @@ const MIME: Record<Kind, string> = {
   webp: 'image/webp',
   svg: 'image/svg+xml',
   pdf: 'application/pdf',
+  heic: 'image/heic',
 }
 const LABEL: Record<string, string> = { logo: 'logo', photo: 'profile photo', card: 'business card' }
 const typeList = (kinds: Kind[]) => {
@@ -73,6 +73,7 @@ function sniff(b: Buffer): Kind | null {
   if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpg'
   if (b.length >= 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'webp'
   if (b.length >= 5 && b.toString('latin1', 0, 5) === '%PDF-') return 'pdf'
+  if (b.length >= 12 && b.toString('latin1', 4, 8) === 'ftyp' && /^(heic|heix|heim|heis|hevc|hevx|mif1|msf1)$/.test(b.toString('latin1', 8, 12))) return 'heic'
   const head = b.subarray(0, 4096).toString('utf8').replace(/^﻿/, '')
   const rest = head
     .replace(/^\s*<\?xml[\s\S]*?\?>/, '')
@@ -96,81 +97,126 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice
 function cleanBrief(raw: unknown): Brief {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const b: Brief = { ...EMPTY_BRIEF }
+  b.gift = r.gift === true
+  b.ordererName = b.gift ? str(r.ordererName, MAX.name) : ''
+  b.ordererPhone = b.gift ? str(r.ordererPhone, MAX.phone) : ''
   b.name = str(r.name, MAX.name)
   b.title = str(r.title, MAX.title)
   b.company = str(r.company, MAX.company)
   b.phone = str(r.phone, MAX.phone)
-  b.whatsappSame = r.whatsappSame === true
-  b.whatsapp = b.whatsappSame ? b.phone : str(r.whatsapp, MAX.phone)
+  b.phone2 = str(r.phone2, MAX.phone)
   b.email = str(r.email, MAX.email)
   b.website = str(r.website, MAX.url)
-  b.city = str(r.city, MAX.city)
-  b.tagline = str(r.tagline, MAX.tagline)
+  b.socials = (Array.isArray(r.socials) ? r.socials : [])
+    .slice(0, MAX_SOCIALS + 1)
+    .map((x) => {
+      const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
+      const platform = ((PLATFORMS as readonly string[]).includes(o.platform as string) ? o.platform : 'Other') as Platform
+      return { platform, url: str(o.url, MAX.url) }
+    })
+    .filter((x) => x.url)
   b.bio = str(r.bio, MAX.bio)
-  b.linkedin = str(r.linkedin, MAX.url)
-  b.instagram = str(r.instagram, MAX.url)
-  b.links = (Array.isArray(r.links) ? r.links : [])
-    .slice(0, MAX_EXTRA_LINKS + 1)
-    .map((l) => ({ label: str((l as Record<string, unknown>)?.label, MAX.linkLabel), url: str((l as Record<string, unknown>)?.url, MAX.url) }))
-    .filter((l) => l.label || l.url)
-  b.languages = (Array.isArray(r.languages) ? r.languages : []).filter((l): l is string => typeof l === 'string').slice(0, LANGUAGES.length + 1)
-  b.languagesOther = str(r.languagesOther, MAX.languagesOther)
-  b.colours = (Array.isArray(r.colours) ? r.colours : []).filter((c): c is string => typeof c === 'string').slice(0, MAX_COLOURS + 1)
+  b.tagline = str(r.tagline, MAX.tagline)
   b.notes = str(r.notes, MAX.notes)
   b.consent = r.consent === true
+  b.consentAt = typeof r.consentAt === 'string' ? r.consentAt.slice(0, 40) : ''
   return b
+}
+
+/** The browser's consent time, if it is a sane one (not in the future, not older than 30 days); else now. */
+function consentTime(b: Brief, now: Date): Date {
+  const ms = new Date(b.consentAt).getTime()
+  if (Number.isFinite(ms) && ms <= now.getTime() + 60_000 && now.getTime() - ms < 30 * 86_400_000) return new Date(ms)
+  return now
 }
 
 // ---------------------------------------------------------------- email
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
-function rows(b: Brief): [string, string][] {
-  return [
-    ['Full name', b.name],
-    ['Job title', b.title],
-    ['Company', b.company],
-    ['Phone', b.phone],
-    ['WhatsApp', b.whatsappSame ? `${b.phone} (same as phone)` : b.whatsapp],
-    ['Email', b.email],
-    ['Website', b.website],
-    ['City', b.city],
-    ['Card front line', b.tagline],
-    ['Short bio', b.bio],
-    ['LinkedIn', b.linkedin],
-    ['Instagram', b.instagram],
-    ...b.links.map((l, i): [string, string] => [`Link ${i + 1}: ${l.label}`, l.url]),
-    ['Profile languages', [...b.languages, b.languagesOther].filter(Boolean).join(', ')],
-    ['Brand colours', b.colours.join(', ')],
-    ['Anything else', b.notes],
-    ['Consent', b.consent ? 'Yes: Taply may use these details and files to design and produce the card and digital profile.' : 'No'],
-  ]
+type Row = [string, string]
+type Group = { title: string; rows: Row[] }
+
+function groups(b: Brief, consentAt: string): Group[] {
+  const out: Group[] = []
+  if (b.gift)
+    out.push({
+      title: 'Ordered by (gift / filled in for someone else)',
+      rows: [
+        ['Name', b.ordererName],
+        ['Number', b.ordererPhone],
+      ],
+    })
+  out.push(
+    {
+      title: b.gift ? "Card owner's details" : 'Details',
+      rows: [
+        ['Full name', b.name],
+        ['Job title', b.title],
+        ['Company', b.company],
+      ],
+    },
+    {
+      title: 'Contact',
+      rows: [
+        ['Phone (WhatsApp)', b.phone],
+        ['Second phone', b.phone2],
+        ['Email', b.email],
+        ['Website', b.website],
+        ['Social links', b.socials.map((x) => `${x.platform}: ${x.url}`).join('\n')],
+      ],
+    },
+    {
+      title: 'Profile and card',
+      rows: [
+        ['Short bio', b.bio],
+        ['Card tagline', b.tagline],
+        ['Anything else', b.notes],
+      ],
+    },
+    {
+      title: 'Consent',
+      rows: [
+        ['Consent', b.consent ? 'Yes: agreed to these details showing on the public profile and to being contacted about the order.' : 'No'],
+        ['Consent given', `${consentAt} (Nairobi time)`],
+      ],
+    },
+  )
+  return out
 }
 
-function buildEmail(b: Brief, ref: string, client: string, when: string, files: { filename: string }[]) {
-  const all = rows(b)
+function buildEmail(b: Brief, ref: string, client: string, when: string, consentAt: string, files: { filename: string }[]) {
+  const all = groups(b, consentAt)
   const fileList = files.length ? files.map((f) => f.filename).join(', ') : 'None'
+  const heading = `New Taply card brief: ${b.company || b.name} (${ref})`
   const text = [
-    `New Taply card brief: ${b.company} (${ref})`,
-    `Link prepared for: ${client}`,
+    heading,
     `Reference: ${ref}`,
+    `Link prepared for: ${client}`,
     `Submitted: ${when} (Nairobi time)`,
-    '',
-    ...all.map(([k, v]) => `${k}: ${v || '-'}`),
+    `Gift / for someone else: ${b.gift ? 'Yes' : 'No'}`,
+    ...all.flatMap((g) => ['', `== ${g.title} ==`, ...g.rows.map(([k, v]) => `${k}: ${v ? v.replace(/\n/g, '\n  ') : '-'}`)]),
     '',
     `Attached files: ${fileList}`,
   ].join('\n')
   const cell = 'padding:10px 14px;border-bottom:1px solid #dddad0;vertical-align:top;font:14px/1.5 Arial,sans-serif;'
+  const key = `${cell}color:#55556a;width:34%;`
+  const groupHead =
+    'padding:18px 14px 8px;border-bottom:1px solid #dddad0;font:600 11px/1.4 Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#4c1bf1;'
+  const row = ([k, v]: Row) =>
+    `<tr><td style="${key}">${esc(k)}</td><td style="${cell}white-space:pre-wrap;">${v ? esc(v) : '<span style="color:#9a9aa8;">-</span>'}</td></tr>`
   const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f4f2ea;color:#13131f;">
 <table role="presentation" style="max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #dddad0;border-collapse:collapse;width:100%;">
-<tr><td colspan="2" style="padding:20px 14px;border-bottom:3px solid #4c1bf1;font:600 18px/1.3 Arial,sans-serif;">New Taply card brief: ${esc(b.company)} <span style="color:#4c1bf1;">(${esc(ref)})</span></td></tr>
-<tr><td style="${cell}color:#55556a;width:34%;">Link prepared for</td><td style="${cell}">${esc(client)}</td></tr>
-<tr><td style="${cell}color:#55556a;">Reference</td><td style="${cell}">${esc(ref)}</td></tr>
-<tr><td style="${cell}color:#55556a;">Submitted</td><td style="${cell}">${esc(when)} (Nairobi time)</td></tr>
-${all.map(([k, v]) => `<tr><td style="${cell}color:#55556a;">${esc(k)}</td><td style="${cell}white-space:pre-wrap;">${v ? esc(v) : '<span style="color:#9a9aa8;">-</span>'}</td></tr>`).join('\n')}
-<tr><td style="${cell}color:#55556a;">Attached files</td><td style="${cell}">${esc(fileList)}</td></tr>
+<tr><td colspan="2" style="padding:20px 14px;border-bottom:3px solid #4c1bf1;font:600 18px/1.3 Arial,sans-serif;">New Taply card brief: ${esc(b.company || b.name)} <span style="color:#4c1bf1;">(${esc(ref)})</span></td></tr>
+${row(['Reference', ref])}
+${row(['Link prepared for', client])}
+${row(['Submitted', `${when} (Nairobi time)`])}
+${row(['Gift / for someone else', b.gift ? 'Yes' : 'No'])}
+${all.map((g) => `<tr><td colspan="2" style="${groupHead}">${esc(g.title)}</td></tr>\n${g.rows.map(row).join('\n')}`).join('\n')}
+<tr><td colspan="2" style="${groupHead}">Files</td></tr>
+${row(['Attached files', fileList])}
 </table></body></html>`
-  return { text, html }
+  return { heading, text, html }
 }
 
 // ---------------------------------------------------------------- multipart
@@ -276,7 +322,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return sendJson(res, 400, { ok: false, error: 'invalid', message: 'The form data could not be read.' })
   }
   const brief = cleanBrief(raw)
-  const errors = validateBrief(brief, 0)
+  const errors = validateBrief(brief)
   if (Object.keys(errors).length) return sendJson(res, 400, { ok: false, error: 'invalid', fields: errors, message: 'Please check the highlighted fields.' })
 
   const cards = parsed.files.filter((f) => f.field === 'card')
@@ -290,9 +336,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     content: f.data,
     contentType: MIME[f.kind],
   }))
-  const when = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', dateStyle: 'full', timeStyle: 'short' }).format(new Date())
-  const { text, html } = buildEmail(brief, ref, client, when, attachments)
-  const subject = `New Taply card brief: ${brief.company} (${ref})`
+  const now = new Date()
+  const nairobi = (d: Date, timeStyle: 'short' | 'medium') =>
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', dateStyle: 'full', timeStyle }).format(d)
+  const when = nairobi(now, 'short')
+  const consentAt = nairobi(consentTime(brief, now), 'medium')
+  const { heading: subject, text, html } = buildEmail(brief, ref, client, when, consentAt, attachments)
 
   const { NOTIFY_EMAIL, GMAIL_USER, GMAIL_APP_PASSWORD } = process.env
   if (!NOTIFY_EMAIL || !GMAIL_USER || !GMAIL_APP_PASSWORD) {
@@ -316,7 +365,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     await transport.sendMail({
       from: { name: 'Taply client briefs', address: GMAIL_USER },
       to: NOTIFY_EMAIL,
-      replyTo: { name: brief.name, address: brief.email },
+      // Replies go to the client when they gave an email address.
+      ...(brief.email ? { replyTo: { name: brief.name, address: brief.email } } : {}),
       subject,
       text,
       html,

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, ReactNode } from 'react'
-import { BrandMark, CTA, SectionIntro, WHATSAPP_NUMBER } from '../components/shared'
-import { CardBody, FlipButton } from '../components/YourCardSection'
-import { EMPTY_BRIEF, LANGUAGES, MAX, MAX_CARD_FILES, MAX_COLOURS, MAX_EXTRA_LINKS, MAX_TOTAL_BYTES, validateBrief } from './limits'
-import type { Brief, FieldErrors } from './limits'
-import { formatBytes, prepare, SLOT_ACCEPT, SLOT_LABEL } from './files'
+import type { ChangeEvent, DragEvent, FocusEvent, FormEvent, ReactNode, RefObject } from 'react'
+import { BrandMark, CTA, WHATSAPP_NUMBER } from '../components/shared'
+import { CardBody, CardStage, FlipButton, StaticCards, usePrefersReducedMotion } from '../components/YourCardSection'
+import { EMPTY_BRIEF, MAX, MAX_CARD_FILES, MAX_SOCIALS, MAX_TOTAL_BYTES, PLATFORMS, validateBrief } from './limits'
+import type { Brief, FieldErrors, Platform, Social } from './limits'
+import { formatBytes, kindList, prepare, SLOT_ACCEPT, SLOT_LABEL } from './files'
 import type { Prepared, Slot } from './files'
 import './onboard.css'
 
@@ -12,40 +12,53 @@ import './onboard.css'
  * Private client onboarding form (/onboard?t=<signed token>).
  * Not linked from the public site; noindex. The token is checked by
  * /api/verify before the form renders, and again by /api/submit.
+ * One scrolling page: every section is visible, one submit button.
  */
 
 const wa = (text: string) => `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`
 const LINK_HELP = wa("Hi Taply! My form link isn't working. Kindly send a new one.")
 const SETUP_HELP = wa("Hi Taply! I tried to send my card details through the form, but it isn't set up yet. Can you help?")
+const REDUCED = '(prefers-reduced-motion: reduce)'
 
 type Link = { ref: string; client: string }
+/** What the confirmation page's draft card shows: the submitted values and the local file URLs. */
+type Draft = { name: string; title: string; company: string; tagline: string; logoUrl?: string; photoUrl?: string; urls: string[] }
+type Done = { dev: boolean; firstName: string; draft: Draft }
 type Screen =
   | { kind: 'loading' }
   | { kind: 'invalid' }
   | { kind: 'not-configured' }
   | { kind: 'form'; link: Link }
-  | { kind: 'success'; link: Link; dev: boolean; firstName: string }
+  | ({ kind: 'success'; link: Link } & Done)
 
 type Files = Record<Slot, Prepared[]>
 const NO_FILES: Files = { logo: [], photo: [], card: [] }
-const STEPS = [
-  { num: '01', label: 'You', title: ['About ', 'you.'] },
-  { num: '02', label: 'Your brand', title: ['Your brand and ', 'profile.'] },
-  { num: '03', label: 'Your files', title: ['Your ', 'files.'] },
-] as const
+/** The fields that must be valid before the button looks ready. */
+const REQUIRED_KEYS = ['ordererName', 'ordererPhone', 'name', 'phone', 'consent']
 
 /** Which field shows which side of the preview card. */
-const BACK_FIELDS = new Set(['name', 'title'])
+const BACK_FIELDS = new Set(['name', 'title', 'company', 'photo'])
 const FRONT_FIELDS = new Set(['tagline', 'logo'])
 
 // ---------------------------------------------------------------- storage (drafts)
-const draftKey = (ref: string) => `taply-brief-draft:${ref}`
+const draftKey = (ref: string) => `taply-brief-draft-v2:${ref}`
 function loadDraft(ref: string): Brief | null {
   try {
     const raw = window.localStorage.getItem(draftKey(ref))
     if (!raw) return null
     const d = JSON.parse(raw) as Partial<Brief>
-    return { ...EMPTY_BRIEF, ...d, consent: false }
+    const b: Brief = { ...EMPTY_BRIEF }
+    for (const k of Object.keys(EMPTY_BRIEF) as (keyof Brief)[]) {
+      const v = d[k]
+      if (typeof v === typeof EMPTY_BRIEF[k] && !Array.isArray(EMPTY_BRIEF[k])) (b as Record<string, unknown>)[k] = v
+    }
+    b.socials = (Array.isArray(d.socials) ? d.socials : [])
+      .filter((s): s is Social => !!s && typeof s.url === 'string' && (PLATFORMS as readonly string[]).includes(s.platform))
+      .slice(0, MAX_SOCIALS)
+    if (!b.socials.length) b.socials = [{ platform: 'LinkedIn', url: '' }]
+    b.consent = false
+    b.consentAt = ''
+    return b
   } catch (e) {
     console.warn('[onboard] could not read the saved draft', e)
     return null
@@ -53,8 +66,9 @@ function loadDraft(ref: string): Brief | null {
 }
 function saveDraft(ref: string, b: Brief) {
   try {
-    const { consent: _c, ...text } = b
+    const { consent: _c, consentAt: _t, ...text } = b
     void _c
+    void _t
     window.localStorage.setItem(draftKey(ref), JSON.stringify(text))
   } catch (e) {
     console.warn('[onboard] could not save the draft', e)
@@ -94,6 +108,30 @@ function useWide() {
   return wide
 }
 
+/** A light rise-in for each section as it enters the viewport (none with reduced motion). */
+function useReveal(root: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = root.current
+    if (!el || !('IntersectionObserver' in window) || window.matchMedia(REDUCED).matches) return
+    const items = Array.from(el.querySelectorAll<HTMLElement>('[data-reveal]'))
+    items.forEach((s) => (s.dataset.reveal = 'pending'))
+    const io = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((en) => {
+          if (!en.isIntersecting) return
+          ;(en.target as HTMLElement).dataset.reveal = 'in'
+          io.unobserve(en.target)
+        }),
+      { rootMargin: '0px 0px -8% 0px' },
+    )
+    items.forEach((s) => io.observe(s))
+    return () => {
+      io.disconnect()
+      items.forEach((s) => (s.dataset.reveal = 'in'))
+    }
+  }, [root])
+}
+
 // ---------------------------------------------------------------- page
 export default function OnboardingPage() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get('t'), [])
@@ -127,11 +165,6 @@ export default function OnboardingPage() {
       <span className="ob__grid" aria-hidden="true" />
       <header className="container ob-top">
         <BrandMark variant="logo" alt="Taply" className="ob-top__logo" />
-        {(screen.kind === 'form' || screen.kind === 'success') && (
-          <p className="ob-top__for">
-            Prepared for <strong>{screen.link.client}</strong>
-          </p>
-        )}
       </header>
       <main className="container ob-main" id="main">
         {screen.kind === 'loading' && (
@@ -154,12 +187,12 @@ export default function OnboardingPage() {
           <BriefForm
             link={screen.link}
             token={token!}
-            onDone={(dev, firstName) => setScreen({ kind: 'success', link: screen.link, dev, firstName })}
+            onDone={(done) => setScreen({ kind: 'success', link: screen.link, ...done })}
             onLinkInvalid={() => setScreen({ kind: 'invalid' })}
             onNotConfigured={() => setScreen({ kind: 'not-configured' })}
           />
         )}
-        {screen.kind === 'success' && <Success link={screen.link} dev={screen.dev} firstName={screen.firstName} />}
+        {screen.kind === 'success' && <Success link={screen.link} dev={screen.dev} firstName={screen.firstName} draft={screen.draft} />}
       </main>
     </div>
   )
@@ -183,7 +216,7 @@ function Notice({ title, line, cta, href }: { title: string; line: string; cta: 
   )
 }
 
-function Success({ link, dev, firstName }: { link: Link; dev: boolean; firstName: string }) {
+function Success({ link, dev, firstName, draft }: { link: Link; dev: boolean; firstName: string; draft: Draft }) {
   const ref = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
     ref.current?.focus()
@@ -204,6 +237,7 @@ function Success({ link, dev, firstName }: { link: Link; dev: boolean; firstName
         <span className="ob-ref__k">Reference</span>
         <span className="ob-ref__v">{link.ref}</span>
       </p>
+      <DraftCard draft={draft} />
       <h2 className="ob-next__title">What happens next</h2>
       <ol className="ob-next">
         <li>
@@ -229,34 +263,63 @@ function Success({ link, dev, firstName }: { link: Link; dev: boolean; firstName
   )
 }
 
+/**
+ * The submitted values on the real card, from memory: the logo and photo are
+ * the local object URLs the form already made (no network request). The URLs
+ * are released when this page goes away.
+ */
+function DraftCard({ draft }: { draft: Draft }) {
+  const reduced = usePrefersReducedMotion()
+  const revokeTimer = useRef(0)
+  useEffect(() => {
+    // Deferred, so React's development double-mount doesn't release them early.
+    window.clearTimeout(revokeTimer.current)
+    return () => {
+      revokeTimer.current = window.setTimeout(() => draft.urls.forEach((u) => URL.revokeObjectURL(u)), 0)
+    }
+  }, [draft])
+  const front = { logoSrc: draft.logoUrl, tagline: draft.tagline, fallback: 'symbol' as const }
+  const back = { name: draft.name, role: draft.title, company: draft.company, photoSrc: draft.photoUrl }
+  const label = 'Draft preview of your card: the front and the back with your details and a QR code'
+  return (
+    <section className="ob-draft" aria-labelledby="ob-draft-title">
+      <h2 className="ob-draft__title" id="ob-draft-title">
+        Your card, so far
+      </h2>
+      <div className="ob-draft__card">{reduced ? <StaticCards front={front} back={back} label={label} /> : <CardStage front={front} back={back} label={label} />}</div>
+      <p className="ob-draft__note">Draft preview. Our team will refine your final mockup and send it for your approval.</p>
+    </section>
+  )
+}
+
 // ---------------------------------------------------------------- form
 type FormProps = {
   link: Link
   token: string
-  onDone: (dev: boolean, firstName: string) => void
+  onDone: (done: Done) => void
   onLinkInvalid: () => void
   onNotConfigured: () => void
 }
 
 function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: FormProps) {
   const restored = useMemo(() => loadDraft(link.ref), [link.ref])
-  const [brief, setBrief] = useState<Brief>(restored ?? EMPTY_BRIEF)
+  const [brief, setBrief] = useState<Brief>(restored ?? { ...EMPTY_BRIEF, socials: [{ platform: 'LinkedIn', url: '' }] })
   const [files, setFiles] = useState<Files>(NO_FILES)
-  const [fileErr, setFileErr] = useState<Partial<Record<Slot | 'total', string>>>({})
-  const [step, setStep] = useState(1)
+  const [fileErr, setFileErr] = useState<Partial<Record<Slot, string>>>({})
   const [errors, setErrors] = useState<FieldErrors>({})
-  const [checked, setChecked] = useState<Record<number, boolean>>({})
   const [announce, setAnnounce] = useState(restored ? 'We restored the details you typed earlier.' : '')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   const [side, setSide] = useState<'front' | 'back'>('front')
-  const [previewOpen, setPreviewOpen] = useState(false)
   const [hp, setHp] = useState('')
   const startedAt = useRef(firstOpened(link.ref))
-  const headingRef = useRef<HTMLHeadingElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
-  const firstRender = useRef(true)
+  const briefRef = useRef(brief)
+  briefRef.current = brief
+  const focusSocial = useRef<number | null>(null)
+  const handedOff = useRef(false)
   const wide = useWide()
+  useReveal(formRef)
 
   // Draft: typed text only (never files), saved shortly after each change.
   useEffect(() => {
@@ -264,64 +327,67 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
     return () => window.clearTimeout(id)
   }, [brief, link.ref])
 
-  // Re-validate live once a step has been checked.
-  useEffect(() => {
-    if (checked[step]) setErrors(validateBrief(brief, step as 1 | 2 | 3))
-  }, [brief, step, checked])
-
-  // Move focus to the step's heading on every step change (not on first load).
-  useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false
-      return
-    }
-    headingRef.current?.focus({ preventScroll: true })
-    formRef.current?.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-  }, [step])
-
-  // Object URLs for thumbnails are released when files go away.
+  // Object URLs for thumbnails are released when the form goes away, unless
+  // the confirmation page took them over for its draft card.
   const filesRef = useRef(files)
   filesRef.current = files
-  useEffect(() => () => Object.values(filesRef.current).flat().forEach((f) => f.url && URL.revokeObjectURL(f.url)), [])
+  useEffect(
+    () => () => {
+      if (!handedOff.current) Object.values(filesRef.current).flat().forEach((f) => f.url && URL.revokeObjectURL(f.url))
+    },
+    [],
+  )
 
-  const set = <K extends keyof Brief>(k: K, v: Brief[K]) => setBrief((b) => ({ ...b, [k]: v }))
-  const onText = (k: keyof Brief) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k, e.target.value as never)
+  // A new social row gets focus once it exists.
+  useEffect(() => {
+    if (focusSocial.current === null) return
+    formRef.current?.querySelector<HTMLElement>(`#f-social${focusSocial.current}url`)?.focus()
+    focusSocial.current = null
+  }, [brief.socials.length])
+
+  const update = (next: Brief, changed: string) => {
+    setBrief(next)
+    // Errors appear on blur or submit only; typing just clears one that is fixed.
+    if (errors[changed] && !validateBrief(next)[changed]) setErrors((e) => ({ ...e, [changed]: undefined }))
+  }
+  const set = <K extends keyof Brief>(k: K, v: Brief[K]) => update({ ...briefRef.current, [k]: v }, k)
+  const blur = (k: string) => () => {
+    const msg = validateBrief(briefRef.current)[k]
+    setErrors((e) => (e[k] === msg ? e : { ...e, [k]: msg }))
+  }
+  /** value / onChange / onBlur for a text field. */
+  const text = (k: keyof Brief) => ({
+    value: brief[k] as string,
+    onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k, e.target.value as never),
+    onBlur: blur(k),
+  })
+
+  const setSocial = (i: number, patch: Partial<Social>) =>
+    update({ ...briefRef.current, socials: briefRef.current.socials.map((s, j) => (j === i ? { ...s, ...patch } : s)) }, `social${i}url`)
+  const addSocial = () => {
+    const used = new Set(brief.socials.map((s) => s.platform))
+    const platform = PLATFORMS.find((p) => !used.has(p) && p !== 'Other') ?? 'Other'
+    focusSocial.current = brief.socials.length
+    set('socials', [...brief.socials, { platform, url: '' }])
+  }
+  const removeSocial = (i: number) => {
+    set(
+      'socials',
+      brief.socials.filter((_, j) => j !== i),
+    )
+    // Row errors are keyed by position: recheck them on the next blur or submit.
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('social'))))
+    setAnnounce(`Social link ${i + 1} removed.`)
+    window.setTimeout(() => formRef.current?.querySelector<HTMLElement>('.ob-add--social')?.focus(), 0)
+  }
 
   const totalBytes = Object.values(files).flat().reduce((n, f) => n + f.file.size, 0)
-
-  const checkStep = (s: 1 | 2 | 3): boolean => {
-    const e = validateBrief(brief, s)
-    setChecked((c) => ({ ...c, [s]: true }))
-    setErrors(e)
-    const keys = Object.keys(e)
-    let fileProblem = false
-    if (s === 3 && totalBytes > MAX_TOTAL_BYTES) fileProblem = true
-    if (!keys.length && !fileProblem) return true
-    const n = keys.length + (fileProblem ? 1 : 0)
-    setAnnounce(`Please check ${n} ${n === 1 ? 'field' : 'fields'} before you continue.`)
-    window.setTimeout(() => {
-      const first = keys.length ? formRef.current?.querySelector<HTMLElement>(`[data-field="${keys[0]}"]`) : formRef.current?.querySelector<HTMLElement>('.ob-drop__input')
-      first?.focus()
-    }, 30)
-    return false
-  }
-
-  const next = () => {
-    if (!checkStep(step as 1 | 2)) return
-    setAnnounce(`Step ${step + 1} of 3: ${STEPS[step].label}.`)
-    setStep(step + 1)
-  }
-  const back = () => {
-    setAnnounce(`Step ${step - 1} of 3: ${STEPS[step - 2].label}.`)
-    setStep(step - 1)
-  }
 
   // ---- files
   const addFiles = async (slot: Slot, list: FileList | File[]) => {
     const incoming = Array.from(list)
     if (!incoming.length) return
-    const limit = slot === 'card' ? MAX_CARD_FILES : 1
-    const room = slot === 'card' ? limit - files.card.length : 1
+    const room = slot === 'card' ? MAX_CARD_FILES - files.card.length : 1
     if (room <= 0) {
       setFileErr((e) => ({ ...e, [slot]: 'You can upload up to 2 files here: the front and the back. Remove one to add another.' }))
       return
@@ -338,13 +404,13 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
       }
     }
     setFiles((cur) => {
-      const replaced = slot === 'card' ? [] : cur[slot]
-      replaced.forEach((p) => p.url && URL.revokeObjectURL(p.url))
+      if (slot !== 'card' && ok.length) cur[slot].forEach((p) => p.url && URL.revokeObjectURL(p.url))
       return { ...cur, [slot]: slot === 'card' ? [...cur.card, ...ok] : ok.length ? ok : cur[slot] }
     })
     setFileErr((e) => ({ ...e, [slot]: problems.join(' ') || undefined }))
     setAnnounce(problems.length ? problems.join(' ') : `${ok.map((p) => p.name).join(', ')} added to your ${SLOT_LABEL[slot]}.`)
     if (slot === 'logo' && ok.length) setSide('front')
+    if (slot === 'photo' && ok.length) setSide('back')
   }
   const removeFile = (slot: Slot, id: string) => {
     setFiles((cur) => {
@@ -363,18 +429,41 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
       .sort((a, b) => b.file.size - a.file.size)[0]
     return `Your files add up to ${formatBytes(totalBytes)}, over the 4 MB limit. Please use a smaller ${SLOT_LABEL[biggest.slot]} ("${biggest.name}", ${formatBytes(biggest.file.size)}).`
   }, [files, totalBytes])
+  const biggestSlot = totalError ? Object.values(files).flat().sort((a, b) => b.file.size - a.file.size)[0].slot : null
+
+  const live = validateBrief(brief)
+  const ready = !REQUIRED_KEYS.some((k) => live[k])
+
+  const focusFirstInvalid = () =>
+    window.setTimeout(() => {
+      const el = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')
+      if (!el) return
+      el.focus({ preventScroll: true })
+      el.scrollIntoView({ block: 'center', behavior: window.matchMedia(REDUCED).matches ? 'auto' : 'smooth' })
+    }, 30)
 
   // ---- submit
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (step < 3) return next()
     if (sending) return
-    if (!checkStep(3)) return
+    const found = validateBrief(brief)
+    setErrors(found)
+    const n = Object.keys(found).length + (totalError ? 1 : 0)
+    if (n) {
+      setAnnounce(`Please check ${n} ${n === 1 ? 'field' : 'fields'} before you send.`)
+      focusFirstInvalid()
+      return
+    }
     setSending(true)
     setSendError('')
     setAnnounce('Sending your details…')
+    const payload: Brief = {
+      ...brief,
+      ordererName: brief.gift ? brief.ordererName : '',
+      ordererPhone: brief.gift ? brief.ordererPhone : '',
+      socials: brief.socials.filter((s) => s.url.trim()),
+    }
     const fd = new FormData()
-    const payload: Brief = { ...brief, whatsapp: brief.whatsappSame ? brief.phone : brief.whatsapp }
     fd.append('brief', JSON.stringify(payload))
     fd.append('elapsed', String(Math.round((Date.now() - startedAt.current) / 1000)))
     fd.append('fax', hp)
@@ -384,25 +473,34 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
       const body = await r.json().catch(() => ({}))
       if (r.ok && body.ok) {
         clearDraft(link.ref)
-        onDone(!!body.dev, brief.name.trim().split(/\s+/)[0] ?? '')
+        handedOff.current = true
+        const all = Object.values(files).flat()
+        const who = brief.gift ? brief.ordererName : brief.name
+        onDone({
+          dev: !!body.dev,
+          firstName: who.trim().split(/\s+/)[0] ?? '',
+          draft: {
+            name: brief.name.trim(),
+            title: brief.title.trim(),
+            company: brief.company.trim(),
+            tagline: brief.tagline.trim(),
+            logoUrl: files.logo[0]?.url ?? undefined,
+            photoUrl: files.photo[0]?.url ?? undefined,
+            urls: all.map((f) => f.url).filter((u): u is string => !!u),
+          },
+        })
         return
       }
       if (r.status === 401) return onLinkInvalid()
       if (body.error === 'not-configured') return onNotConfigured()
       if (body.error === 'invalid' && body.fields) {
-        const fields = body.fields as FieldErrors
-        setErrors(fields)
-        setChecked({ 1: true, 2: true, 3: true })
-        const k = Object.keys(fields)[0]
-        const s = validateBrief(brief, 1)[k] ? 1 : validateBrief(brief, 2)[k] ? 2 : 3
-        setStep(s)
+        setErrors(body.fields as FieldErrors)
         setAnnounce(body.message || 'Please check the highlighted fields.')
         setSending(false)
+        focusFirstInvalid()
         return
       }
-      if (body.error === 'file' && body.file) {
-        setFileErr((fe) => ({ ...fe, [body.file]: body.message }))
-      }
+      if (body.error === 'file' && body.file) setFileErr((fe) => ({ ...fe, [body.file]: body.message }))
       setSendError(body.message || "We couldn't send your details just now. Please try again.")
       setAnnounce(body.message || "We couldn't send your details just now.")
     } catch (err) {
@@ -424,31 +522,37 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
     <Preview
       brief={brief}
       logoUrl={files.logo[0]?.url ?? null}
+      photoUrl={files.photo[0]?.url ?? null}
       side={side}
       onSide={setSide}
+      compact={!wide}
     />
   )
 
   const err = (k: string) => errors[k]
-  const meta = STEPS[step - 1]
+  const gift = brief.gift
+  const phoneHint = gift
+    ? 'Include their country code if outside Kenya, e.g. +44 7700 900123.'
+    : 'Include your country code if outside Kenya, e.g. +44 7700 900123.'
 
   return (
     <>
-      <div className="ob-head">
+      <div className="ob-head ob-fade">
+        <p className="ob-hi">Hi {link.client},</p>
         <h1 className="h2 ob-head__title">
-          Let's build <span className="accent">your card.</span>
+          Your digital <span className="accent">profile</span>
         </h1>
-        <p className="lede">Tell us about you and upload your files. We'll take it from here.</p>
+        <p className="lede">Takes 2 minutes. We'll send you a preview to approve.</p>
       </div>
 
+      {!wide && (
+        <div className="ob-mpreview" aria-label="Live card preview" role="region">
+          {preview}
+        </div>
+      )}
+
       <div className="ob-layout">
-        <form className="ob-form" ref={formRef} onSubmit={submit} onFocusCapture={onFocusCapture} noValidate aria-describedby="ob-steps-label">
-          <div className="ob-progress" aria-hidden="true">
-            <span style={{ transform: `scaleX(${step / 3})` }} />
-          </div>
-          <p className="ob-steps" id="ob-steps-label">
-            Step {step} of 3
-          </p>
+        <form className="ob-form" ref={formRef} onSubmit={submit} onFocusCapture={onFocusCapture} noValidate aria-label="Your card details">
           <p className="sr-only" aria-live="polite" role="status">
             {announce}
           </p>
@@ -461,221 +565,258 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
             </label>
           </div>
 
-          <div className="ob-step" key={step}>
-            <SectionIntro num={meta.num} label={meta.label} />
-            <h2 className="ob-step__title" tabIndex={-1} ref={headingRef}>
-              {meta.title[0]}
-              <span className="accent">{meta.title[1]}</span>
-            </h2>
-
-            {step === 1 && (
-              <div className="ob-fields">
-                <Field id="name" label="Full name" required error={err('name')}>
-                  {(p) => <input {...p} className="ob-input" type="text" autoComplete="name" maxLength={MAX.name} value={brief.name} onChange={onText('name')} />}
-                </Field>
-                <Field id="title" label="Job title" required error={err('title')}>
-                  {(p) => <input {...p} className="ob-input" type="text" autoComplete="organization-title" maxLength={MAX.title} value={brief.title} onChange={onText('title')} />}
-                </Field>
-                <Field id="company" label="Company name" required error={err('company')} full>
-                  {(p) => <input {...p} className="ob-input" type="text" autoComplete="organization" maxLength={MAX.company} value={brief.company} onChange={onText('company')} />}
-                </Field>
-                <Field id="phone" label="Phone" required error={err('phone')}>
-                  {(p) => <input {...p} className="ob-input" type="tel" autoComplete="tel" inputMode="tel" maxLength={MAX.phone} value={brief.phone} onChange={onText('phone')} />}
-                </Field>
-                <div className="ob-field">
-                  {!brief.whatsappSame ? (
-                    <Field id="whatsapp" label="WhatsApp number" error={err('whatsapp')} bare>
-                      {(p) => <input {...p} className="ob-input" type="tel" autoComplete="tel" inputMode="tel" maxLength={MAX.phone} value={brief.whatsapp} onChange={onText('whatsapp')} />}
-                    </Field>
-                  ) : (
-                    <span className="ob-label" aria-hidden="true">
-                      WhatsApp number
-                    </span>
-                  )}
-                  <label className="ob-check ob-check--inline">
-                    <input type="checkbox" checked={brief.whatsappSame} onChange={(e) => set('whatsappSame', e.target.checked)} />
-                    <span>WhatsApp: same as phone</span>
-                  </label>
-                </div>
-                <Field id="email" label="Email" required error={err('email')} full>
-                  {(p) => <input {...p} className="ob-input" type="email" autoComplete="email" inputMode="email" maxLength={MAX.email} value={brief.email} onChange={onText('email')} />}
-                </Field>
-                <Field id="website" label="Website" error={err('website')}>
-                  {(p) => <input {...p} className="ob-input" type="url" autoComplete="url" inputMode="url" placeholder="company.com" maxLength={MAX.url} value={brief.website} onChange={onText('website')} />}
-                </Field>
-                <Field id="city" label="City" error={err('city')}>
-                  {(p) => <input {...p} className="ob-input" type="text" autoComplete="address-level2" maxLength={MAX.city} value={brief.city} onChange={onText('city')} />}
-                </Field>
-              </div>
-            )}
-
-            {step === 2 && (
-              <div className="ob-fields">
-                <Field id="tagline" label="Card front line" hint="A short tagline or line under your logo" error={err('tagline')} full counter={`${brief.tagline.length} / ${MAX.tagline}`}>
-                  {(p) => <input {...p} className="ob-input" type="text" maxLength={MAX.tagline} value={brief.tagline} onChange={onText('tagline')} />}
-                </Field>
-                <Field id="bio" label="Short bio" error={err('bio')} full counter={`${brief.bio.length} / ${MAX.bio}`}>
-                  {(p) => <textarea {...p} className="ob-input ob-textarea" rows={3} maxLength={MAX.bio} value={brief.bio} onChange={onText('bio')} />}
-                </Field>
-                <Field id="linkedin" label="LinkedIn" error={err('linkedin')}>
-                  {(p) => <input {...p} className="ob-input" type="url" inputMode="url" placeholder="linkedin.com/in/…" maxLength={MAX.url} value={brief.linkedin} onChange={onText('linkedin')} />}
-                </Field>
-                <Field id="instagram" label="Instagram" error={err('instagram')}>
-                  {(p) => <input {...p} className="ob-input" type="text" inputMode="url" autoCapitalize="none" placeholder="@handle" maxLength={MAX.url} value={brief.instagram} onChange={onText('instagram')} />}
-                </Field>
-
-                <fieldset className="ob-field ob-field--full ob-set">
-                  <legend className="ob-label">
-                    Other links <span className="ob-opt">(up to {MAX_EXTRA_LINKS})</span>
-                  </legend>
-                  {brief.links.map((l, i) => (
-                    <div className="ob-row" key={i}>
-                      <Field id={`link${i}label`} label={`Link ${i + 1} label`} error={err(`link${i}label`)} bare>
-                        {(p) => (
-                          <input {...p} className="ob-input" type="text" placeholder="Portfolio" maxLength={MAX.linkLabel} value={l.label}
-                            onChange={(e) => set('links', brief.links.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
-                        )}
-                      </Field>
-                      <Field id={`link${i}url`} label={`Link ${i + 1} address`} error={err(`link${i}url`)} bare>
-                        {(p) => (
-                          <input {...p} className="ob-input" type="url" inputMode="url" placeholder="example.com" maxLength={MAX.url} value={l.url}
-                            onChange={(e) => set('links', brief.links.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))} />
-                        )}
-                      </Field>
-                      <button type="button" className="ob-remove" aria-label={`Remove link ${i + 1}`} onClick={() => set('links', brief.links.filter((_, j) => j !== i))}>
-                        <Cross />
-                      </button>
-                    </div>
-                  ))}
-                  {brief.links.length < MAX_EXTRA_LINKS && (
-                    <button type="button" className="ob-add" onClick={() => set('links', [...brief.links, { label: '', url: '' }])}>
-                      + Add a link
-                    </button>
-                  )}
-                </fieldset>
-
-                <fieldset className="ob-field ob-field--full ob-set">
-                  <legend className="ob-label">
-                    Profile languages <span className="ob-opt">(choose any)</span>
-                  </legend>
-                  <div className="ob-chips">
-                    {LANGUAGES.map((lang) => {
-                      const on = brief.languages.includes(lang)
-                      return (
-                        <button type="button" key={lang} className="ob-chip" aria-pressed={on}
-                          onClick={() => set('languages', on ? brief.languages.filter((x) => x !== lang) : [...brief.languages, lang])}>
-                          {lang}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <Field id="languagesOther" label="Other languages" error={err('languagesOther')} bare>
-                    {(p) => <input {...p} className="ob-input" type="text" maxLength={MAX.languagesOther} value={brief.languagesOther} onChange={onText('languagesOther')} />}
+          <fieldset className="ob-fs" disabled={sending}>
+            {/* 0. Gift toggle */}
+            <div className="ob-gift" data-reveal>
+              <label className="ob-toggle">
+                <input type="checkbox" role="switch" checked={gift} onChange={(e) => {
+                  const on = e.target.checked
+                  update({ ...briefRef.current, gift: on }, 'gift')
+                  if (!on) setErrors((x) => ({ ...x, ordererName: undefined, ordererPhone: undefined }))
+                }} />
+                <span className="ob-toggle__track" aria-hidden="true" />
+                <span className="ob-toggle__text">This card is a gift / I'm filling this in for someone else.</span>
+              </label>
+              {gift && (
+                <div className="ob-grid ob-gift__who">
+                  <Field id="ordererName" label="Your name" required error={err('ordererName')}>
+                    {(p) => <input {...p} {...text('ordererName')} className="ob-input" type="text" autoComplete="name" maxLength={MAX.name} />}
                   </Field>
-                </fieldset>
-
-                <fieldset className="ob-field ob-field--full ob-set">
-                  <legend className="ob-label">
-                    Brand colours <span className="ob-opt">(optional, up to {MAX_COLOURS})</span>
-                  </legend>
-                  <div className="ob-colours">
-                    {brief.colours.map((c, i) => (
-                      <div className="ob-colour" key={i}>
-                        <input type="color" className="ob-colour__pick" aria-label={`Colour ${i + 1} picker`} value={/^#[0-9a-f]{6}$/i.test(c) ? c : '#000000'}
-                          onChange={(e) => set('colours', brief.colours.map((x, j) => (j === i ? e.target.value.toUpperCase() : x)))} />
-                        <Field id={`colour${i}`} label={`Colour ${i + 1} hex value`} error={err(`colour${i}`)} bare srLabel>
-                          {(p) => (
-                            <input {...p} className="ob-input ob-colour__hex" type="text" spellCheck={false} autoCapitalize="characters" maxLength={7} value={c}
-                              onChange={(e) => set('colours', brief.colours.map((x, j) => (j === i ? e.target.value : x)))} />
-                          )}
-                        </Field>
-                        <button type="button" className="ob-remove" aria-label={`Remove colour ${i + 1}`} onClick={() => set('colours', brief.colours.filter((_, j) => j !== i))}>
-                          <Cross />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  {brief.colours.length < MAX_COLOURS && (
-                    <button type="button" className="ob-add" onClick={() => set('colours', [...brief.colours, brief.colours.length ? '#13131F' : '#4C1BF1'])}>
-                      + Add a colour
-                    </button>
-                  )}
-                </fieldset>
-
-                <Field id="notes" label="Anything else we should know" error={err('notes')} full>
-                  {(p) => <textarea {...p} className="ob-input ob-textarea" rows={4} maxLength={MAX.notes} value={brief.notes} onChange={onText('notes')} />}
-                </Field>
-              </div>
-            )}
-
-            {step === 3 && (
-              <div className="ob-fields ob-fields--files">
-                <Upload slot="logo" label="Logo" hint="PNG, SVG, JPG or WebP. A vector SVG or high-resolution PNG is best." files={files.logo} error={fileErr.logo} onAdd={addFiles} onRemove={removeFile} />
-                <Upload slot="photo" label="Profile photo" hint="JPG, PNG or WebP." files={files.photo} error={fileErr.photo} onAdd={addFiles} onRemove={removeFile} />
-                <Upload slot="card" label="Business card" optional multiple
-                  hint="Already have a business card? Upload it and we'll copy the details for you. Up to 2 files (front and back), as images or PDF."
-                  files={files.card} error={fileErr.card} onAdd={addFiles} onRemove={removeFile} />
-                {totalError && (
-                  <p className="ob-error ob-field--full" role="alert">
-                    <Bang />
-                    {totalError}
-                  </p>
-                )}
-                <div className="ob-field ob-field--full">
-                  <label className="ob-check">
-                    <input type="checkbox" data-field="consent" checked={brief.consent} onChange={(e) => set('consent', e.target.checked)}
-                      aria-invalid={!!err('consent')} aria-describedby={err('consent') ? 'consent-error' : undefined} required />
-                    <span>I agree that Taply may use these details and files to design and produce my card and digital profile.</span>
-                  </label>
-                  {err('consent') && (
-                    <p className="ob-error" id="consent-error">
-                      <Bang />
-                      {err('consent')}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {!wide && (
-            <div className="ob-mpreview">
-              <button type="button" className="ob-mpreview__toggle" aria-expanded={previewOpen} aria-controls="ob-mpreview" onClick={() => setPreviewOpen((o) => !o)}>
-                Preview
-                <span className="ob-mpreview__chev" aria-hidden="true" />
-              </button>
-              {previewOpen && (
-                <div id="ob-mpreview" className="ob-mpreview__body">
-                  {preview}
+                  <Field id="ordererPhone" label="Your number" required hint="Your WhatsApp, so we can reach you about the order." error={err('ordererPhone')}>
+                    {(p) => <input {...p} {...text('ordererPhone')} className="ob-input" type="tel" inputMode="tel" autoComplete="tel" maxLength={MAX.phone} />}
+                  </Field>
                 </div>
               )}
             </div>
-          )}
 
-          {sendError && (
-            <div className="ob-senderr" role="alert">
-              <p>
-                <Bang />
-                {sendError}
+            {/* 1. Business card */}
+            <Section num="01" label="Business card">
+              <p className="ob-sec__lead">
+                {gift ? "Have their business card? Upload a photo of it and we'll copy their details." : "Have a business card? Upload a photo of it and we'll copy your details."}
               </p>
-              <a href={wa(`Hi Taply! I'm having trouble sending my card details (${link.ref}).`)} target="_blank" rel="noopener noreferrer" className="ob-add">
-                Message us on WhatsApp<span className="sr-only"> (opens WhatsApp in a new tab)</span>
-              </a>
-            </div>
-          )}
+              <Upload
+                slot="card"
+                cta={files.card.length ? 'Add the other side' : 'Upload your business card'}
+                hint="JPG, PNG, WebP, HEIC or PDF. Front and back, if it has both."
+                multiple
+                files={files.card}
+                error={fileErr.card ?? (biggestSlot === 'card' ? totalError : undefined)}
+                onAdd={addFiles}
+                onRemove={removeFile}
+              />
+              {files.card.length > 0 && <p className="ob-note">No need to fill in what's on your card, our team will copy it.</p>}
+            </Section>
 
-          <div className="ob-actions">
-            {step > 1 ? (
-              <button type="button" className="ob-back" onClick={back}>
-                <span aria-hidden="true">←</span> Back
-              </button>
-            ) : (
-              <span />
-            )}
-            <CTA variant="violet" type="submit" disabled={sending} className="ob-next">
-              {step < 3 ? 'Continue' : sending ? 'Sending…' : 'Send my details'}
-            </CTA>
-          </div>
+            {/* 2. Details */}
+            <Section num="02" label={gift ? "Card owner's details" : 'Your details'}>
+              <div className="ob-grid">
+                <Field id="name" label={gift ? "Card owner's full name" : 'Full name'} required error={err('name')} full>
+                  {(p) => <input {...p} {...text('name')} className="ob-input" type="text" autoComplete={gift ? 'off' : 'name'} maxLength={MAX.name} />}
+                </Field>
+                <Field id="title" label="Job title" error={err('title')}>
+                  {(p) => <input {...p} {...text('title')} className="ob-input" type="text" autoComplete={gift ? 'off' : 'organization-title'} maxLength={MAX.title} />}
+                </Field>
+                <Field id="company" label="Company" error={err('company')}>
+                  {(p) => <input {...p} {...text('company')} className="ob-input" type="text" autoComplete={gift ? 'off' : 'organization'} maxLength={MAX.company} />}
+                </Field>
+              </div>
+            </Section>
+
+            {/* 3. Contact */}
+            <Section num="03" label={gift ? 'How people reach them' : 'How people reach you'}>
+              <div className="ob-grid">
+                <Field id="phone" label={gift ? "Card owner's phone (WhatsApp)" : 'Phone (WhatsApp)'} required hint={phoneHint} error={err('phone')}>
+                  {(p) => <input {...p} {...text('phone')} className="ob-input" type="tel" inputMode="tel" autoComplete={gift ? 'off' : 'tel'} maxLength={MAX.phone} />}
+                </Field>
+                <Field id="phone2" label="Second phone" error={err('phone2')}>
+                  {(p) => <input {...p} {...text('phone2')} className="ob-input" type="tel" inputMode="tel" autoComplete="off" maxLength={MAX.phone} />}
+                </Field>
+                <Field id="email" label="Email" error={err('email')}>
+                  {(p) => (
+                    <input {...p} {...text('email')} className="ob-input" type="email" inputMode="email" autoComplete={gift ? 'off' : 'email'} autoCapitalize="none" spellCheck={false} maxLength={MAX.email} />
+                  )}
+                </Field>
+                <Field id="website" label="Website" error={err('website')}>
+                  {(p) => (
+                    <input {...p} {...text('website')} className="ob-input" type="url" inputMode="url" autoComplete={gift ? 'off' : 'url'} autoCapitalize="none" spellCheck={false} placeholder="company.com" maxLength={MAX.url} />
+                  )}
+                </Field>
+
+                <fieldset className="ob-field ob-field--full ob-set">
+                  <legend className="ob-label">Social links</legend>
+                  <div className="ob-socials">
+                    {brief.socials.map((s, i) => (
+                      <div className="ob-social" key={i}>
+                        <div className="ob-subfield">
+                          <label className="ob-sublabel" htmlFor={`f-social${i}platform`}>
+                            Platform
+                          </label>
+                          <select
+                            id={`f-social${i}platform`}
+                            className="ob-input ob-select"
+                            value={s.platform}
+                            onChange={(e) => setSocial(i, { platform: e.target.value as Platform })}
+                          >
+                            {PLATFORMS.map((p) => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="ob-subfield">
+                          <label className="ob-sublabel" htmlFor={`f-social${i}url`}>
+                            Link
+                          </label>
+                          <input
+                            id={`f-social${i}url`}
+                            data-field={`social${i}url`}
+                            className="ob-input"
+                            type="url"
+                            inputMode="url"
+                            autoComplete="off"
+                            autoCapitalize="none"
+                            spellCheck={false}
+                            placeholder={s.platform === 'Other' ? 'example.com' : `${s.platform.toLowerCase()}.com/…`}
+                            maxLength={MAX.url}
+                            value={s.url}
+                            aria-invalid={!!err(`social${i}url`)}
+                            aria-describedby={err(`social${i}url`) ? `social${i}url-error` : undefined}
+                            onChange={(e) => setSocial(i, { url: e.target.value })}
+                            onBlur={blur(`social${i}url`)}
+                          />
+                        </div>
+                        <button type="button" className="ob-remove" aria-label={`Remove social link ${i + 1} (${s.platform})`} onClick={() => removeSocial(i)}>
+                          <Cross />
+                        </button>
+                        {err(`social${i}url`) && (
+                          <p className="ob-error ob-social__error" id={`social${i}url-error`}>
+                            <Bang />
+                            {err(`social${i}url`)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {brief.socials.length < MAX_SOCIALS && (
+                    <button type="button" className="ob-add ob-add--social" onClick={addSocial}>
+                      <span aria-hidden="true">+</span> Add a social link
+                    </button>
+                  )}
+                </fieldset>
+              </div>
+            </Section>
+
+            {/* 4. Photo, logo and bio */}
+            <Section num="04" label="Photo, logo and bio">
+              <div className="ob-grid">
+                <div className="ob-field">
+                  <Upload
+                    slot="photo"
+                    label="Profile photo"
+                    cta={files.photo.length ? 'Replace photo' : 'Upload a photo'}
+                    hint={`${kindList('photo')}.`}
+                    files={files.photo}
+                    error={fileErr.photo ?? (biggestSlot === 'photo' ? totalError : undefined)}
+                    onAdd={addFiles}
+                    onRemove={removeFile}
+                  />
+                </div>
+                <div className="ob-field">
+                  <Upload
+                    slot="logo"
+                    label="Logo"
+                    cta={files.logo.length ? 'Replace logo' : 'Upload your logo'}
+                    hint="JPG, PNG, WebP, PDF or SVG."
+                    files={files.logo}
+                    error={fileErr.logo ?? (biggestSlot === 'logo' ? totalError : undefined)}
+                    onAdd={addFiles}
+                    onRemove={removeFile}
+                  />
+                </div>
+                <Field id="bio" label="Short bio" error={err('bio')} full counter={`${brief.bio.length}/${MAX.bio}`}>
+                  {(p) => <textarea {...p} {...text('bio')} className="ob-input ob-textarea" rows={3} maxLength={MAX.bio} />}
+                </Field>
+              </div>
+            </Section>
+
+            {/* 5. On the card */}
+            <Section num="05" label="On your card">
+              <div className="ob-grid">
+                <Field id="tagline" label="Card tagline" hint="A short line shown on the front of the card." error={err('tagline')} full counter={`${brief.tagline.length}/${MAX.tagline}`}>
+                  {(p) => <input {...p} {...text('tagline')} className="ob-input" type="text" autoComplete="off" maxLength={MAX.tagline} />}
+                </Field>
+                <Field id="notes" label="Anything else we should know?" hint="Colour preferences, special requests." error={err('notes')} full>
+                  {(p) => <textarea {...p} {...text('notes')} className="ob-input ob-textarea" rows={4} maxLength={MAX.notes} />}
+                </Field>
+              </div>
+            </Section>
+
+            {/* 6. Consent and send */}
+            <div className="ob-sec ob-sec--send" data-reveal>
+              <div className="ob-field">
+                <label className="ob-check">
+                  <input
+                    type="checkbox"
+                    id="f-consent"
+                    data-field="consent"
+                    checked={brief.consent}
+                    onChange={(e) => update({ ...briefRef.current, consent: e.target.checked, consentAt: e.target.checked ? new Date().toISOString() : '' }, 'consent')}
+                    aria-invalid={!!err('consent')}
+                    aria-describedby={err('consent') ? 'consent-error' : undefined}
+                    aria-required
+                  />
+                  <span>
+                    {gift
+                      ? "I have their permission, and agree to these details showing on their public profile and to being contacted about my order."
+                      : 'I agree to these details showing on my public profile and to being contacted about my order.'}
+                    <span className="ob-req" aria-hidden="true">
+                      {' '}
+                      *
+                    </span>
+                  </span>
+                </label>
+                {err('consent') && (
+                  <p className="ob-error" id="consent-error">
+                    <Bang />
+                    {err('consent')}
+                  </p>
+                )}
+              </div>
+
+              {sendError && (
+                <div className="ob-senderr" role="alert">
+                  <p>
+                    <Bang />
+                    {sendError}
+                  </p>
+                  <a href={wa(`Hi Taply! I'm having trouble sending my card details (${link.ref}).`)} target="_blank" rel="noopener noreferrer" className="ob-add">
+                    Message us on WhatsApp<span className="sr-only"> (opens WhatsApp in a new tab)</span>
+                  </a>
+                </div>
+              )}
+
+              <div className="ob-send">
+                <CTA variant="violet" type="submit" disabled={sending} className={`ob-submit${ready && !totalError ? '' : ' is-idle'}${sending ? ' is-sending' : ''}`}>
+                  {sending ? (
+                    <>
+                      <span className="ob-spin" aria-hidden="true" />
+                      Sending…
+                    </>
+                  ) : (
+                    'Send my details'
+                  )}
+                </CTA>
+                {!ready && !sending && (
+                  <p className="ob-send__hint">
+                    {gift
+                      ? "Add your name and number, the card owner's name and WhatsApp number, and tick the box to send."
+                      : 'Add your name and WhatsApp number, and tick the box to send.'}
+                  </p>
+                )}
+              </div>
+            </div>
+          </fieldset>
         </form>
 
         {wide && (
@@ -689,8 +830,36 @@ function BriefForm({ link, token, onDone, onLinkInvalid, onNotConfigured }: Form
   )
 }
 
+function Section({ num, label, children }: { num: string; label: string; children: ReactNode }) {
+  const id = `ob-sec-${num}`
+  return (
+    <section className="ob-sec" aria-labelledby={id} data-reveal>
+      <h2 className="eyebrow ob-sec__eyebrow" id={id}>
+        <span className="eyebrow__num">{num}</span>
+        <span>— {label}</span>
+        <span className="eyebrow__rule" aria-hidden="true" />
+      </h2>
+      {children}
+    </section>
+  )
+}
+
 // ---------------------------------------------------------------- preview
-function Preview({ brief, logoUrl, side, onSide }: { brief: Brief; logoUrl: string | null; side: 'front' | 'back'; onSide: (s: 'front' | 'back') => void }) {
+function Preview({
+  brief,
+  logoUrl,
+  photoUrl,
+  side,
+  onSide,
+  compact,
+}: {
+  brief: Brief
+  logoUrl: string | null
+  photoUrl: string | null
+  side: 'front' | 'back'
+  onSide: (s: 'front' | 'back') => void
+  compact: boolean
+}) {
   const back = side === 'back'
   const [flips, setFlips] = useState(0)
   const prev = useRef(back)
@@ -699,17 +868,17 @@ function Preview({ brief, logoUrl, side, onSide }: { brief: Brief; logoUrl: stri
     prev.current = back
   }, [back])
   return (
-    <div className="ob-preview">
+    <div className={`ob-preview${compact ? ' ob-preview--compact' : ''}`}>
       <div className={`ycard ycard--preview is-rest${back ? ' is-back' : ''}${flips ? ` is-flip-${flips % 2}` : ''}`}>
         <div className="ycard__view" onClick={() => onSide(back ? 'front' : 'back')} aria-hidden="true">
           <CardBody
-            front={{ logoSrc: logoUrl ?? undefined, tagline: brief.tagline.trim() }}
-            back={{ name: brief.name.trim() || 'Your name', role: brief.title.trim() || 'Job title' }}
+            front={{ logoSrc: logoUrl ?? undefined, tagline: brief.tagline.trim(), fallback: 'symbol' }}
+            back={{ name: brief.name.trim(), role: brief.title.trim(), company: brief.company.trim(), photoSrc: photoUrl ?? undefined }}
           />
         </div>
         <FlipButton back={back} onClick={() => onSide(back ? 'front' : 'back')} />
       </div>
-      <p className="ob-preview__note">A preview of your card. The QR code will open your digital profile.</p>
+      <p className="ob-preview__note">Updates as you type. The QR code will open your digital profile.</p>
     </div>
   )
 }
@@ -730,8 +899,6 @@ function Field({
   hint,
   error,
   full,
-  bare,
-  srLabel,
   counter,
   children,
 }: {
@@ -741,25 +908,20 @@ function Field({
   hint?: string
   error?: string
   full?: boolean
-  bare?: boolean
-  srLabel?: boolean
   counter?: string
   children: (p: InputProps) => ReactNode
 }) {
   const describedBy = [hint && `${id}-hint`, counter && `${id}-count`, error && `${id}-error`].filter(Boolean).join(' ') || undefined
-  const body = (
-    <>
-      <label className={srLabel ? 'sr-only' : 'ob-label'} htmlFor={`f-${id}`}>
+  return (
+    <div className={`ob-field${full ? ' ob-field--full' : ''}`}>
+      <label className="ob-label" htmlFor={`f-${id}`}>
         {label}
-        {required ? (
+        {required && (
           <span className="ob-req" aria-hidden="true">
             {' '}
             *
           </span>
-        ) : (
-          !bare && <span className="ob-opt"> (optional)</span>
         )}
-        {required && <span className="sr-only"> (required)</span>}
       </label>
       {children({ id: `f-${id}`, 'data-field': id, 'aria-invalid': !!error, 'aria-describedby': describedBy, 'aria-required': required || undefined })}
       {(hint || counter) && (
@@ -782,17 +944,15 @@ function Field({
           {error}
         </p>
       )}
-    </>
+    </div>
   )
-  if (bare) return <div className="ob-subfield">{body}</div>
-  return <div className={`ob-field${full ? ' ob-field--full' : ''}`}>{body}</div>
 }
 
 function Upload({
   slot,
   label,
+  cta,
   hint,
-  optional,
   multiple,
   files,
   error,
@@ -800,9 +960,10 @@ function Upload({
   onRemove,
 }: {
   slot: Slot
-  label: string
+  /** Visible label above the drop zone (the business card uses its section's lead line instead). */
+  label?: string
+  cta: string
   hint: string
-  optional?: boolean
   multiple?: boolean
   files: Prepared[]
   error?: string
@@ -821,14 +982,16 @@ function Upload({
     [onAdd, slot],
   )
   const describedBy = `${id}-hint${error ? ` ${id}-error` : ''}`
+  const labelledBy = label ? `${id}-label ${id}-cta` : `${id}-cta`
   return (
-    <div className="ob-field ob-field--full">
-      <span className="ob-label" id={`${id}-label`}>
-        {label}
-        {optional ? <span className="ob-opt"> (optional)</span> : <span className="ob-opt"> (recommended)</span>}
-      </span>
+    <>
+      {label && (
+        <span className="ob-label" id={`${id}-label`}>
+          {label}
+        </span>
+      )}
       <label
-        className={`ob-drop${drag ? ' is-drag' : ''}`}
+        className={`ob-drop${drag ? ' is-drag' : ''}${files.length ? ' has-file' : ''}`}
         onDragEnter={(e) => {
           e.preventDefault()
           setDrag(true)
@@ -847,9 +1010,10 @@ function Upload({
           id={id}
           className="ob-drop__input"
           type="file"
+          data-field={slot}
           accept={SLOT_ACCEPT[slot]}
           multiple={multiple}
-          aria-labelledby={`${id}-label ${id}-cta`}
+          aria-labelledby={labelledBy}
           aria-describedby={describedBy}
           aria-invalid={!!error}
           onChange={(e) => {
@@ -863,25 +1027,37 @@ function Upload({
           </svg>
         </span>
         <span className="ob-drop__text" id={`${id}-cta`}>
-          Drag {multiple ? 'files' : 'a file'} here or <u>choose {multiple ? 'files' : 'a file'}</u>
+          {cta}
         </span>
         <span className="ob-drop__hint" id={`${id}-hint`}>
           {hint}
         </span>
       </label>
       {files.length > 0 && (
-        <ul className="ob-thumbs" aria-label={`${label} files`}>
+        <ul className="ob-thumbs" aria-label={`${label ?? 'Business card'} files`}>
           {files.map((f, i) => (
             <li key={f.id}>
-              {f.url ? <img className={`ob-thumb ob-thumb--${slot}`} src={f.url} alt="" /> : <span className="ob-thumb ob-thumb--pdf">PDF</span>}
+              {f.url ? (
+                <img className={`ob-thumb ob-thumb--${slot}`} src={f.url} alt="" />
+              ) : (
+                <span className="ob-thumb ob-thumb--file">{f.kind.toUpperCase()}</span>
+              )}
               <span className="ob-thumbs__meta">
-                <span className="ob-thumbs__name">{slot === 'card' ? `${i === 0 ? 'Front' : 'Back'}: ` : ''}{f.name}</span>
+                <span className="ob-thumbs__name">
+                  {slot === 'card' && files.length > 1 ? `${i === 0 ? 'Front' : 'Back'}: ` : ''}
+                  {f.name}
+                </span>
                 <span className="ob-thumbs__size">{formatBytes(f.file.size)}</span>
               </span>
-              <button type="button" className="ob-remove" aria-label={`Remove ${f.name}`} onClick={() => {
-                onRemove(slot, f.id)
-                inputRef.current?.focus()
-              }}>
+              <button
+                type="button"
+                className="ob-remove"
+                aria-label={`Remove ${f.name}`}
+                onClick={() => {
+                  onRemove(slot, f.id)
+                  inputRef.current?.focus()
+                }}
+              >
                 <Cross />
               </button>
             </li>
@@ -894,7 +1070,7 @@ function Upload({
           {error}
         </p>
       )}
-    </div>
+    </>
   )
 }
 
@@ -914,3 +1090,4 @@ function Cross() {
     </svg>
   )
 }
+

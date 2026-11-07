@@ -6,7 +6,7 @@ const REDUCED = '(prefers-reduced-motion: reduce)'
 const HOLD_MS = 2500 // front shown face-forward before the automatic flip
 const clamp = (v: number) => Math.max(-1, Math.min(1, v))
 
-function usePrefersReducedMotion() {
+export function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(() => window.matchMedia(REDUCED).matches)
   useEffect(() => {
     const mq = window.matchMedia(REDUCED)
@@ -20,15 +20,17 @@ function usePrefersReducedMotion() {
 /* The two faces share the ProductCard surface (pcard: ratio, container
    units, gloss and deep shadow). Both are Carbon. The props let the client
    onboarding preview reuse them; the defaults are this section's sample. */
-type FrontProps = { className?: string; logoSrc?: string; tagline?: string }
-type BackProps = { className?: string; name?: string; role?: string }
+export type FrontProps = { className?: string; logoSrc?: string; tagline?: string; fallback?: 'logo' | 'symbol' }
+export type BackProps = { className?: string; name?: string; role?: string; company?: string; photoSrc?: string }
 
-export function CardFront({ className = '', logoSrc, tagline = 'Digital identity, made human.' }: FrontProps) {
+export function CardFront({ className = '', logoSrc, tagline = 'Digital identity, made human.', fallback = 'logo' }: FrontProps) {
   return (
     <div className={`pcard pcard--dark ycard__face ycard__face--front ${className}`}>
       <div className="pcard__face">
         {logoSrc ? (
           <img className="ycard__logo ycard__logo--custom" src={logoSrc} alt="" decoding="async" />
+        ) : fallback === 'symbol' ? (
+          <BrandMark variant="symbol" className="ycard__logo ycard__logo--symbol" />
         ) : (
           <BrandMark variant="reversed" className="ycard__logo" />
         )}
@@ -39,14 +41,16 @@ export function CardFront({ className = '', logoSrc, tagline = 'Digital identity
   )
 }
 
-export function CardBack({ className = '', name = 'Amara Mensah', role = 'Product Designer' }: BackProps) {
+export function CardBack({ className = '', name = 'Amara Mensah', role = 'Product Designer', company, photoSrc }: BackProps) {
   return (
     <div className={`pcard pcard--dark ycard__face ycard__face--back ${className}`}>
       <div className="pcard__face">
         <div className="ycard__back">
           <div className="ycard__who">
-            <span className="ycard__name">{name}</span>
-            <span className="ycard__role">{role}</span>
+            {photoSrc && <img className="ycard__photo" src={photoSrc} alt="" decoding="async" />}
+            {name && <span className="ycard__name">{name}</span>}
+            {role && <span className="ycard__role">{role}</span>}
+            {company && <span className="ycard__role">{company}</span>}
           </div>
           <span className="ycard__stroke" />
           <img className="ycard__qr" src="/brand/taply-qr.svg" alt="" width="264" height="264" decoding="async" />
@@ -103,6 +107,8 @@ export function FlipButton({ back, disabled, onClick }: { back: boolean; disable
 }
 
 type Phase = 'waiting' | 'swoop' | 'rest'
+const SAMPLE_LABEL = 'Sample Taply card: front with the Taply logo, back with a name, title and QR code'
+type StageProps = { front?: FrontProps; back?: BackProps; label?: string }
 
 /*
  * Plays once when the stage is 35% in view: the card swoops up with a small
@@ -110,7 +116,7 @@ type Phase = 'waiting' | 'swoop' | 'rest'
  * front for 2.5s, then flips to the back. Afterwards the Flip button or a
  * tap on the card turns it. Reduced motion shows both faces, still.
  */
-function CardStage() {
+export function CardStage({ front, back: backFace, label = SAMPLE_LABEL }: StageProps = {}) {
   const stageRef = useRef<HTMLDivElement>(null)
   const tiltRef = useRef<HTMLDivElement>(null)
   const holdTimer = useRef(0)
@@ -201,7 +207,7 @@ function CardStage() {
         className="ycard__stage"
         ref={stageRef}
         role="img"
-        aria-label="Sample Taply card: front with the Taply logo, back with a name, title and QR code"
+        aria-label={label}
         onPointerMove={onMove}
         onPointerLeave={onLeave}
       >
@@ -211,7 +217,7 @@ function CardStage() {
           <div className="ycard__view">
             <div className="ycard__tilt" ref={tiltRef}>
               <div className="ycard__tumble">
-                <CardBody onTransitionEnd={onFlipEnd} />
+                <CardBody front={front} back={backFace} onTransitionEnd={onFlipEnd} />
               </div>
             </div>
           </div>
@@ -223,17 +229,13 @@ function CardStage() {
   )
 }
 
-function StaticCards() {
+export function StaticCards({ front, back, label = SAMPLE_LABEL }: StageProps = {}) {
   return (
-    <div
-      className="ycard ycard--still"
-      role="img"
-      aria-label="Sample Taply card: front with the Taply logo, back with a name, title and QR code"
-    >
+    <div className="ycard ycard--still" role="img" aria-label={label}>
       <span className="ycard__field" aria-hidden="true" />
       <div className="ycard__pair">
-        <CardFront />
-        <CardBack />
+        <CardFront {...front} />
+        <CardBack {...back} />
       </div>
     </div>
   )

@@ -1,13 +1,16 @@
 /*
  * Client-side file checks and processing for the onboarding form.
  * Raster images are resized to at most 1600px on the long side and re-encoded
- * (JPEG ~0.82; PNG kept for logos with transparency). SVG and PDF are sent
- * untouched. The server checks every file again by its bytes.
+ * (JPEG ~0.82; PNG kept for logos with transparency). HEIC is converted the
+ * same way when the browser can decode it, and otherwise sent as it is. SVG
+ * and PDF are sent untouched. The picker takes files up to 10 MB; the 4 MB
+ * total is checked on the processed files. The server checks every file
+ * again by its bytes.
  */
-import { MAX_FILE_BYTES } from './limits'
+import { MAX_PICK_BYTES } from './limits'
 
 export type Slot = 'logo' | 'photo' | 'card'
-export type Kind = 'png' | 'jpg' | 'webp' | 'svg' | 'pdf'
+export type Kind = 'png' | 'jpg' | 'webp' | 'svg' | 'pdf' | 'heic'
 
 export type Prepared = {
   id: string
@@ -15,25 +18,32 @@ export type Prepared = {
   name: string
   file: File
   kind: Kind
-  /** Object URL for image thumbnails; null for PDFs. */
+  /** Object URL for image thumbnails; null for PDFs and HEIC the browser can't show. */
   url: string | null
 }
 
 export const SLOT_LABEL: Record<Slot, string> = { logo: 'logo', photo: 'profile photo', card: 'business card' }
 export const SLOT_KINDS: Record<Slot, Kind[]> = {
-  logo: ['png', 'svg', 'jpg', 'webp'],
-  photo: ['jpg', 'png', 'webp'],
-  card: ['jpg', 'png', 'webp', 'pdf'],
+  logo: ['jpg', 'png', 'webp', 'pdf', 'svg'],
+  photo: ['jpg', 'png', 'webp', 'heic'],
+  card: ['jpg', 'png', 'webp', 'heic', 'pdf'],
 }
+const HEIC_ACCEPT = 'image/heic,image/heif,.heic,.heif'
 export const SLOT_ACCEPT: Record<Slot, string> = {
-  logo: 'image/png,image/svg+xml,image/jpeg,image/webp,.png,.svg,.jpg,.jpeg,.webp',
-  photo: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
-  card: 'image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf',
+  logo: 'image/jpeg,image/png,image/webp,application/pdf,image/svg+xml,.jpg,.jpeg,.png,.webp,.pdf,.svg',
+  photo: `image/jpeg,image/png,image/webp,${HEIC_ACCEPT},.jpg,.jpeg,.png,.webp`,
+  card: `image/jpeg,image/png,image/webp,${HEIC_ACCEPT},application/pdf,.jpg,.jpeg,.png,.webp,.pdf`,
+}
+const MIME: Record<Kind, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  pdf: 'application/pdf',
+  heic: 'image/heic',
 }
 const MAX_LONG_SIDE = 1600
 const JPEG_QUALITY = 0.82
-/** Raster images larger than this are refused before processing (they'd be slow to decode on a phone). */
-const MAX_SOURCE_BYTES = 30 * 1024 * 1024
 
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -41,8 +51,9 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-const kindList = (slot: Slot) => {
-  const names = SLOT_KINDS[slot].map((k) => (k === 'webp' ? 'WebP' : k.toUpperCase()))
+const kindName = (k: Kind) => (k === 'webp' ? 'WebP' : k.toUpperCase())
+export const kindList = (slot: Slot) => {
+  const names = SLOT_KINDS[slot].map(kindName)
   return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
 }
 
@@ -54,6 +65,8 @@ async function sniff(file: File): Promise<Kind | null> {
   if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return 'jpg'
   if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return 'webp'
   if (ascii(0, 5) === '%PDF-') return 'pdf'
+  // HEIC/HEIF: an ISO-BMFF "ftyp" box with an image brand.
+  if (ascii(4, 8) === 'ftyp' && /^(heic|heix|heim|heis|hevc|hevx|mif1|msf1)$/.test(ascii(8, 12))) return 'heic'
   const text = new TextDecoder().decode(head).replace(/^﻿/, '')
   if (/^\s*(<\?xml[\s\S]*?\?>\s*)?(<!--[\s\S]*?-->\s*)*(<!DOCTYPE[\s\S]*?>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(text)) return 'svg'
   return null
@@ -90,21 +103,22 @@ export async function prepare(file: File, slot: Slot): Promise<Prepared> {
   const kind = await sniff(file)
   if (!kind || !SLOT_KINDS[slot].includes(kind))
     throw new Error(`"${file.name}" isn't a supported file for your ${label}. Please use ${kindList(slot)}.`)
+  if (file.size > MAX_PICK_BYTES)
+    throw new Error(`"${file.name}" is ${formatBytes(file.size)}. Please choose a file under 10 MB.`)
   const id = `${slot}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-
-  if (kind === 'svg' || kind === 'pdf') {
-    if (file.size > MAX_FILE_BYTES)
-      throw new Error(`"${file.name}" is ${formatBytes(file.size)}. Please use a ${kind.toUpperCase()} under ${formatBytes(MAX_FILE_BYTES)}.`)
-    const out = new File([file], `${baseName(file.name)}.${kind}`, { type: kind === 'svg' ? 'image/svg+xml' : 'application/pdf' })
-    return { id, slot, name: file.name, file: out, kind, url: kind === 'svg' ? URL.createObjectURL(out) : null }
+  const asIs = (k: Kind, url: boolean): Prepared => {
+    const out = new File([file], `${baseName(file.name)}.${k}`, { type: MIME[k] })
+    return { id, slot, name: file.name, file: out, kind: k, url: url ? URL.createObjectURL(out) : null }
   }
 
-  if (file.size > MAX_SOURCE_BYTES)
-    throw new Error(`"${file.name}" is ${formatBytes(file.size)}, which is too large to process. Please use an image under 30 MB.`)
+  if (kind === 'svg' || kind === 'pdf') return asIs(kind, kind === 'svg')
+
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(file)
   } catch {
+    // Most browsers outside Safari can't decode HEIC: send it as it is.
+    if (kind === 'heic') return asIs('heic', false)
     throw new Error(`We couldn't open "${file.name}". Please try a different ${label} file.`)
   }
   const scale = Math.min(1, MAX_LONG_SIDE / Math.max(bitmap.width, bitmap.height))
@@ -137,7 +151,5 @@ export async function prepare(file: File, slot: Slot): Promise<Prepared> {
   if (kind === 'jpg' && scale === 1 && file.size <= blob.size) blob = file
   const ext = blob.type === 'image/png' ? 'png' : 'jpg'
   const out = new File([blob], `${baseName(file.name)}.${ext}`, { type: blob.type || 'image/jpeg' })
-  if (out.size > MAX_FILE_BYTES)
-    throw new Error(`"${file.name}" is still ${formatBytes(out.size)} after resizing. Please use a smaller image.`)
   return { id, slot, name: file.name, file: out, kind: ext === 'png' ? 'png' : 'jpg', url: URL.createObjectURL(out) }
 }

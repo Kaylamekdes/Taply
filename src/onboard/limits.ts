@@ -11,91 +11,72 @@ export const MAX = {
   phone: 24,
   email: 120,
   url: 300,
-  city: 60,
   tagline: 60,
-  bio: 200,
-  linkLabel: 40,
-  languagesOther: 120,
+  bio: 300,
   notes: 1000,
 } as const
 
-export const MAX_EXTRA_LINKS = 3
-export const MAX_COLOURS = 3
+export const MAX_SOCIALS = 8
 export const MAX_CARD_FILES = 2
 export const MAX_FILES = 5 // logo + photo + 2 card sides, with one spare
 /** After client-side processing, all files together (stays under Vercel's 4.5MB body limit). */
 export const MAX_TOTAL_BYTES = 4 * 1024 * 1024
-/** Any single file. */
+/** Any single file, as the server receives it. */
 export const MAX_FILE_BYTES = 4 * 1024 * 1024
+/** Largest file the picker accepts, before resizing. */
+export const MAX_PICK_BYTES = 10 * 1024 * 1024
 /** Seconds a person needs at minimum to fill in the form (spam check). */
 export const MIN_FILL_SECONDS = 8
 
-export const LANGUAGES = [
-  'English',
-  'Kiswahili',
-  'French',
-  'Arabic',
-  'Somali',
-  'Amharic',
-  'Spanish',
-  'Portuguese',
-  'German',
-  'Italian',
-  'Mandarin',
-  'Hindi',
-] as const
-
-export type ExtraLink = { label: string; url: string }
+export const PLATFORMS = ['LinkedIn', 'Instagram', 'X', 'Facebook', 'TikTok', 'YouTube', 'Other'] as const
+export type Platform = (typeof PLATFORMS)[number]
+export type Social = { platform: Platform; url: string }
 
 /** Every text value the form sends (files are sent separately). */
 export type Brief = {
+  /** The card is a gift / someone else is filling it in. */
+  gift: boolean
+  ordererName: string
+  ordererPhone: string
   name: string
   title: string
   company: string
+  /** WhatsApp number (required). */
   phone: string
-  whatsapp: string
-  whatsappSame: boolean
+  phone2: string
   email: string
   website: string
-  city: string
-  tagline: string
+  socials: Social[]
   bio: string
-  linkedin: string
-  instagram: string
-  links: ExtraLink[]
-  languages: string[]
-  languagesOther: string
-  colours: string[]
+  tagline: string
   notes: string
   consent: boolean
+  /** When the consent box was ticked (ISO time, from the browser). */
+  consentAt: string
 }
 
 export const EMPTY_BRIEF: Brief = {
+  gift: false,
+  ordererName: '',
+  ordererPhone: '',
   name: '',
   title: '',
   company: '',
   phone: '',
-  whatsapp: '',
-  whatsappSame: true,
+  phone2: '',
   email: '',
   website: '',
-  city: '',
-  tagline: '',
+  socials: [],
   bio: '',
-  linkedin: '',
-  instagram: '',
-  links: [],
-  languages: [],
-  languagesOther: '',
-  colours: [],
+  tagline: '',
   notes: '',
   consent: false,
+  consentAt: '',
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
-export const HEX_RE = /^#[0-9a-fA-F]{6}$/
 
-/** Digits only, 7-15 of them (an optional leading + and spaces/dashes allowed). */
+/** Digits only, 7-15 of them (an optional leading + and spaces/dashes/brackets allowed). */
 export function isPhone(v: string): boolean {
   if (!/^\+?[\d\s()-]+$/.test(v)) return false
   const digits = v.replace(/\D/g, '')
@@ -113,65 +94,55 @@ export function isWebUrl(v: string): boolean {
   }
 }
 
-/** Instagram: a handle (@name) or a URL. */
-export function isHandleOrUrl(v: string): boolean {
-  return /^@?[A-Za-z0-9._]{1,30}$/.test(v) || isWebUrl(v)
+/** A profile link, or an @handle. */
+export function isProfile(v: string): boolean {
+  return /^@[A-Za-z0-9._-]{1,40}$/.test(v) || isWebUrl(v)
 }
 
 export type FieldErrors = Partial<Record<string, string>>
 
 /**
- * Validates one step (1-3) or, with step 0, everything. Used by the form for
- * inline errors and by the server before anything is emailed.
+ * Validates the whole brief. Used by the form (inline, on blur and on
+ * submit) and by the server before anything is emailed. Only the card
+ * owner's name, WhatsApp number and consent are required (plus the
+ * orderer's name and number when the card is a gift).
  */
-export function validateBrief(b: Brief, step: 0 | 1 | 2 | 3 = 0): FieldErrors {
+export function validateBrief(b: Brief): FieldErrors {
   const e: FieldErrors = {}
-  const req = (k: keyof Brief, label: string) => {
-    if (!String(b[k] ?? '').trim()) e[k] = `Please enter your ${label}.`
-  }
   const len = (k: string, v: string, max: number) => {
     if (v.length > max) e[k] = `Please keep this under ${max} characters.`
   }
-  if (step === 0 || step === 1) {
-    req('name', 'full name')
-    req('title', 'job title')
-    req('company', 'company name')
-    req('phone', 'phone number')
-    req('email', 'email address')
-    if (b.phone.trim() && !isPhone(b.phone)) e.phone = 'Please enter a valid phone number, for example +254 712 345 678.'
-    if (!b.whatsappSame && b.whatsapp.trim() && !isPhone(b.whatsapp)) e.whatsapp = 'Please enter a valid WhatsApp number.'
-    if (b.email.trim() && !EMAIL_RE.test(b.email.trim())) e.email = 'Please enter a valid email address, like name@company.com.'
-    if (b.website.trim() && !isWebUrl(b.website.trim())) e.website = 'Please enter a web address, like company.com.'
-    len('name', b.name, MAX.name)
-    len('title', b.title, MAX.title)
-    len('company', b.company, MAX.company)
-    len('email', b.email, MAX.email)
-    len('website', b.website, MAX.url)
-    len('city', b.city, MAX.city)
+  const whose = b.gift ? "the card owner's" : 'your'
+
+  if (b.gift) {
+    if (!b.ordererName.trim()) e.ordererName = 'Please enter your name.'
+    if (!b.ordererPhone.trim()) e.ordererPhone = 'Please enter your number so we can reach you.'
+    else if (!isPhone(b.ordererPhone.trim())) e.ordererPhone = "That number doesn't look right. Please check it, e.g. +254 712 345 678."
+    len('ordererName', b.ordererName, MAX.name)
   }
-  if (step === 0 || step === 2) {
-    len('tagline', b.tagline, MAX.tagline)
-    len('bio', b.bio, MAX.bio)
-    if (b.linkedin.trim() && !isWebUrl(b.linkedin.trim())) e.linkedin = 'Please enter your LinkedIn profile address.'
-    if (b.instagram.trim() && !isHandleOrUrl(b.instagram.trim())) e.instagram = 'Please enter an @handle or a profile address.'
-    if (b.links.length > MAX_EXTRA_LINKS) e.links = `Up to ${MAX_EXTRA_LINKS} extra links.`
-    b.links.forEach((l, i) => {
-      if (l.url.trim() && !isWebUrl(l.url.trim())) e[`link${i}url`] = 'Please enter a web address.'
-      if (l.url.trim() && !l.label.trim()) e[`link${i}label`] = 'Please add a label, like "Portfolio".'
-      if (l.label.trim() && !l.url.trim()) e[`link${i}url`] = 'Please add the address for this link.'
-      len(`link${i}label`, l.label, MAX.linkLabel)
-      len(`link${i}url`, l.url, MAX.url)
-    })
-    if (b.languages.some((l) => !(LANGUAGES as readonly string[]).includes(l))) e.languages = 'Please choose from the list.'
-    len('languagesOther', b.languagesOther, MAX.languagesOther)
-    if (b.colours.length > MAX_COLOURS) e.colours = `Up to ${MAX_COLOURS} colours.`
-    b.colours.forEach((c, i) => {
-      if (!HEX_RE.test(c)) e[`colour${i}`] = 'Please use a hex value, like #4C1BF1.'
-    })
-    len('notes', b.notes, MAX.notes)
-  }
-  if (step === 0 || step === 3) {
-    if (!b.consent) e.consent = 'Please tick this box so we can use your details to make your card.'
-  }
+
+  if (!b.name.trim()) e.name = `Please enter ${whose} full name.`
+  if (!b.phone.trim()) e.phone = `Please enter ${whose} WhatsApp number.`
+  else if (!isPhone(b.phone.trim())) e.phone = "That number doesn't look right. Please check it, e.g. +254 712 345 678."
+  if (b.phone2.trim() && !isPhone(b.phone2.trim())) e.phone2 = "That number doesn't look right. Please check it."
+  if (b.email.trim() && !EMAIL_RE.test(b.email.trim())) e.email = 'Please check the email address, e.g. name@company.com.'
+  if (b.website.trim() && !isWebUrl(b.website.trim())) e.website = 'Please enter a web address, e.g. company.com.'
+  len('name', b.name, MAX.name)
+  len('title', b.title, MAX.title)
+  len('company', b.company, MAX.company)
+  len('email', b.email, MAX.email)
+  len('website', b.website, MAX.url)
+
+  if (b.socials.length > MAX_SOCIALS) e.socials = `Up to ${MAX_SOCIALS} social links.`
+  b.socials.forEach((s, i) => {
+    if (!(PLATFORMS as readonly string[]).includes(s.platform)) e[`social${i}platform`] = 'Please choose a platform.'
+    if (s.url.trim() && !isProfile(s.url.trim())) e[`social${i}url`] = 'Please paste the profile link, e.g. instagram.com/yourname.'
+    len(`social${i}url`, s.url, MAX.url)
+  })
+
+  len('bio', b.bio, MAX.bio)
+  len('tagline', b.tagline, MAX.tagline)
+  len('notes', b.notes, MAX.notes)
+  if (!b.consent) e.consent = 'Please tick this box so we can make the card and profile.'
   return e
 }
