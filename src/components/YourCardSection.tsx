@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { AnimationEvent, PointerEvent, TransitionEvent } from 'react'
+import type { AnimationEvent, PointerEvent, TransitionEvent, TransitionEventHandler } from 'react'
 import { BrandMark, SectionIntro } from './shared'
 
 const REDUCED = '(prefers-reduced-motion: reduce)'
@@ -18,27 +18,35 @@ function usePrefersReducedMotion() {
 }
 
 /* The two faces share the ProductCard surface (pcard: ratio, container
-   units, gloss and deep shadow). Both are Carbon. */
-function CardFront({ className = '' }: { className?: string }) {
+   units, gloss and deep shadow). Both are Carbon. The props let the client
+   onboarding preview reuse them; the defaults are this section's sample. */
+type FrontProps = { className?: string; logoSrc?: string; tagline?: string }
+type BackProps = { className?: string; name?: string; role?: string }
+
+export function CardFront({ className = '', logoSrc, tagline = 'Digital identity, made human.' }: FrontProps) {
   return (
     <div className={`pcard pcard--dark ycard__face ycard__face--front ${className}`}>
       <div className="pcard__face">
-        <BrandMark variant="reversed" className="ycard__logo" />
-        <span className="ycard__tagline">Digital identity, made human.</span>
+        {logoSrc ? (
+          <img className="ycard__logo ycard__logo--custom" src={logoSrc} alt="" decoding="async" />
+        ) : (
+          <BrandMark variant="reversed" className="ycard__logo" />
+        )}
+        {tagline && <span className="ycard__tagline">{tagline}</span>}
         <span className="pcard__gloss" />
       </div>
     </div>
   )
 }
 
-function CardBack({ className = '' }: { className?: string }) {
+export function CardBack({ className = '', name = 'Amara Mensah', role = 'Product Designer' }: BackProps) {
   return (
     <div className={`pcard pcard--dark ycard__face ycard__face--back ${className}`}>
       <div className="pcard__face">
         <div className="ycard__back">
           <div className="ycard__who">
-            <span className="ycard__name">Amara Mensah</span>
-            <span className="ycard__role">Product Designer</span>
+            <span className="ycard__name">{name}</span>
+            <span className="ycard__role">{role}</span>
           </div>
           <span className="ycard__stroke" />
           <img className="ycard__qr" src="/brand/taply-qr.svg" alt="" width="264" height="264" decoding="async" />
@@ -46,6 +54,51 @@ function CardBack({ className = '' }: { className?: string }) {
         <span className="pcard__gloss" />
       </div>
     </div>
+  )
+}
+
+/** The turning card itself: both faces, the shared sweep and the physical edge. */
+export function CardBody({
+  front,
+  back,
+  onTransitionEnd,
+}: {
+  front?: FrontProps
+  back?: BackProps
+  onTransitionEnd?: TransitionEventHandler<HTMLDivElement>
+}) {
+  return (
+    <div className="ycard__card" onTransitionEnd={onTransitionEnd}>
+      <CardFront {...front} />
+      <CardBack {...back} />
+      {/* One shared highlight for the whole card: one sweep per flip. */}
+      <span className="ycard__sweep" />
+      <span className="ycard__edge ycard__edge--l" />
+      <span className="ycard__edge ycard__edge--r" />
+      <span className="ycard__edge ycard__edge--t" />
+      <span className="ycard__edge ycard__edge--b" />
+    </div>
+  )
+}
+
+/** FRONT / BACK toggle (44px, aria-pressed = showing the back). */
+export function FlipButton({ back, disabled, onClick }: { back: boolean; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className="ycard__flip" aria-pressed={back} disabled={disabled} onClick={onClick}>
+      <span className="sr-only">Flip the card: </span>
+      <span className={back ? '' : 'is-on'}>Front</span>
+      <span aria-hidden="true">/</span>
+      <span className={back ? 'is-on' : ''}>Back</span>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path
+          d="M2.5 8a5.5 5.5 0 0 1 9.4-3.9M13.5 8a5.5 5.5 0 0 1-9.4 3.9M12.2 1.6v2.8H9.4M3.8 14.4v-2.8h2.8"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   )
 }
 
@@ -158,43 +211,14 @@ function CardStage() {
           <div className="ycard__view">
             <div className="ycard__tilt" ref={tiltRef}>
               <div className="ycard__tumble">
-                <div className="ycard__card" onTransitionEnd={onFlipEnd}>
-                  <CardFront />
-                  <CardBack />
-                  {/* One shared highlight for the whole card: one sweep per flip. */}
-                  <span className="ycard__sweep" />
-                  <span className="ycard__edge ycard__edge--l" />
-                  <span className="ycard__edge ycard__edge--r" />
-                  <span className="ycard__edge ycard__edge--t" />
-                  <span className="ycard__edge ycard__edge--b" />
-                </div>
+                <CardBody onTransitionEnd={onFlipEnd} />
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <button
-        type="button"
-        className="ycard__flip"
-        aria-pressed={back}
-        disabled={!ready}
-        onClick={() => flip(!back)}
-      >
-        <span className="sr-only">Flip the card: </span>
-        <span className={back ? '' : 'is-on'}>Front</span>
-        <span aria-hidden="true">/</span>
-        <span className={back ? 'is-on' : ''}>Back</span>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path
-            d="M2.5 8a5.5 5.5 0 0 1 9.4-3.9M13.5 8a5.5 5.5 0 0 1-9.4 3.9M12.2 1.6v2.8H9.4M3.8 14.4v-2.8h2.8"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+      <FlipButton back={back} disabled={!ready} onClick={() => flip(!back)} />
     </div>
   )
 }

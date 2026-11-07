@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
  * order button and the footer link use ORDER_URL. No checkout is built.
  */
 export const WHATSAPP_NUMBER = '254140986500' // Kenya, international format without + or leading 0 (from 0140986500)
-export const ORDER_MESSAGE = "Hi Taply! I'd like to order a Taply card (KES 5,500). Please help me get started."
+export const ORDER_MESSAGE = "Hi Taply! I'd like to order a Taply card (KES 5,500). Kindly help me get started."
 export const ORDER_URL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(ORDER_MESSAGE)}`
 /** Screen-reader suffix for links that open WhatsApp. */
 export const ORDER_LINK_NOTE = ' (opens WhatsApp in a new tab)'
@@ -62,7 +62,8 @@ export function BrandMark({ variant = 'logo', className, alt = '' }: BrandMarkPr
 }
 
 type CTAProps = {
-  href: string
+  /** A link. Without it the CTA renders as a <button> (used by the onboarding form). */
+  href?: string
   variant: 'violet' | 'lime' | 'white' | 'ghost'
   children: ReactNode
   external?: boolean
@@ -70,12 +71,14 @@ type CTAProps = {
   srNote?: string
   className?: string
   onClick?: () => void
+  type?: 'button' | 'submit'
+  disabled?: boolean
 }
 
-export function CTA({ href, variant, children, external, srNote, className = '', onClick }: CTAProps) {
+export function CTA({ href, variant, children, external, srNote, className = '', onClick, type = 'button', disabled }: CTAProps) {
   const externalProps = external ? { target: '_blank', rel: 'noopener noreferrer' } : {}
-  return (
-    <a className={`cta cta--${variant} ${className}`} href={href} onClick={onClick} {...externalProps}>
+  const inner = (
+    <>
       <span className="cta__label">
         {children}
         {srNote && <span className="sr-only">{srNote}</span>}
@@ -89,6 +92,17 @@ export function CTA({ href, variant, children, external, srNote, className = '',
           <Arrow />
         </span>
       )}
+    </>
+  )
+  if (href === undefined)
+    return (
+      <button className={`cta cta--${variant} ${className}`} type={type} onClick={onClick} disabled={disabled}>
+        {inner}
+      </button>
+    )
+  return (
+    <a className={`cta cta--${variant} ${className}`} href={href} onClick={onClick} {...externalProps}>
+      {inner}
     </a>
   )
 }

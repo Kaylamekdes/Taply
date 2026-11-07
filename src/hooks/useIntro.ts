@@ -18,6 +18,8 @@ function decide(): boolean {
   try {
     // Note: runs before main.tsx adds `.js` (imports evaluate first); JS is
     // running by definition here.
+    // The private onboarding form (/onboard) never shows the intro.
+    if (window.location.pathname.startsWith('/onboard')) return false
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
     const param = new URLSearchParams(window.location.search).get('intro')
     if (param === '0') return false

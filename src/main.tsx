@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 
 // Manrope (variable, 400–800) and DM Mono are self-hosted via Fontsource so the
@@ -19,8 +19,25 @@ window.setTimeout(() => {
   if (!document.documentElement.classList.contains('fx-ready')) document.documentElement.classList.remove('js')
 }, 2500)
 
+// Private client onboarding form: link-only, loaded on demand, kept out of search.
+const isOnboarding = /^\/onboard\/?$/.test(window.location.pathname)
+const OnboardingPage = lazy(() => import('./onboard/OnboardingPage'))
+if (isOnboarding) {
+  const robots = document.createElement('meta')
+  robots.name = 'robots'
+  robots.content = 'noindex,nofollow'
+  document.head.appendChild(robots)
+  document.title = 'Taply: your card details'
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {isOnboarding ? (
+      <Suspense fallback={null}>
+        <OnboardingPage />
+      </Suspense>
+    ) : (
+      <App />
+    )}
   </StrictMode>,
 )

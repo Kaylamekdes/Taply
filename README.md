@@ -47,3 +47,74 @@ the wordmark keeps its size and position.
 - Nothing is invented beyond the spec's confirmed facts (no delivery, warranty, payment or dimension details). The only ordering contact is the WhatsApp link above; the number is not shown as text on the page.
 - Intro sound: browsers block autoplay audio, so the key clicks play only after the visitor's first tap, click, touch or key press (the speaker button pulses until then); the iOS silent switch also mutes web audio. For troubleshooting, add `?audiodebug` to the URL to log the audio state and every scheduled sound to the console (off by default).
 - The FAQ answers on production time ("How long does it take to get my card?") and payment terms ("What are the payment terms?") were supplied by the project owner and should be confirmed with Taply before launch.
+
+## Client onboarding form
+
+A private page where a client enters their details and uploads their logo, profile photo and existing
+business card. The brief is emailed to the team. It lives at `/onboard`, is never linked from the public
+site, and is kept out of search engines (`noindex,nofollow` meta tag plus an `X-Robots-Tag` header for
+`/onboard` and `/api/*` in `vercel.json`). It is loaded as a separate chunk, so the main site's bundle is
+unaffected.
+
+### One-time setup
+
+1. **Create a Google App Password** for the Gmail account that will send the briefs:
+   turn on 2-Step Verification for that account, then open <https://myaccount.google.com/apppasswords>,
+   create an app password (name it "Taply form") and copy the 16-character code.
+2. **Create the link secret**: any long random string, for example the output of
+   `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`.
+3. **Add the variables in Vercel**: Project > Settings > Environment Variables, for Production (and
+   Preview if you test there), then redeploy:
+
+   | Name | Value |
+   | --- | --- |
+   | `FORM_LINK_SECRET` | the random string from step 2 |
+   | `NOTIFY_EMAIL` | the address that should receive the briefs |
+   | `GMAIL_USER` | the Gmail address that sends them |
+   | `GMAIL_APP_PASSWORD` | the app password from step 1 |
+
+   `.env.example` lists the same names. For local work, copy it to `.env.local` (never committed;
+   `.env*` is in `.gitignore`). Never put real values in the code or the repository.
+
+### Creating a link for a client
+
+```bash
+FORM_LINK_SECRET=... node scripts/make-link.mjs "Client or company name" 14 https://your-domain
+```
+
+(or set `FORM_LINK_SECRET` and `SITE_URL` in `.env.local` and run `npm run link -- "Client name" 14`).
+The second argument is how many days the link stays valid (default 14). The script prints the link and,
+separately, the reference ID (for example `TP-7K3QXM`). The link is signed with `FORM_LINK_SECRET`, so it
+can't be edited or guessed; changing the secret in Vercel deactivates every link already sent.
+
+### What the client sees
+
+- An inactive, edited or expired link shows "This link isn't active." with a WhatsApp button, and no form.
+- A valid link shows "Prepared for <client>" and three short steps: about you; brand and profile (card
+  line, bio, links, languages, colours, notes); files (logo, profile photo, optional business card front
+  and back), then a consent checkbox.
+- A live preview of their card (the same flip card as the "Your card" section) updates as they type.
+- Typed text is kept in the browser if they refresh (files are not); it is cleared after sending.
+- Images are resized in the browser (1600px max, JPEG about 0.82; logos with transparency stay PNG; SVG and
+  PDF are untouched). Everything together must stay under 4 MB.
+- After sending: a confirmation with the reference, what happens next, and a WhatsApp button.
+
+### What arrives by email
+
+Subject `New Taply card brief: <company> (<ref>)`, sent to `NOTIFY_EMAIL` from `GMAIL_USER`, with
+Reply-To set to the client's email. It has a table (HTML and plain text) of every field, the client name
+and reference from the link, the time in Nairobi, and the files attached as `<ref>-logo.png`,
+`<ref>-photo.jpg`, `<ref>-business-card-1.jpg` and so on. Nothing is stored on the server.
+
+### Protection
+
+The server checks the signed link again, a hidden honeypot field, a minimum fill time, a best-effort limit
+of 5 submissions per connection per hour, field lengths, and every file by its bytes (PNG, JPEG, WebP, SVG,
+PDF only; SVGs with scripts or event handlers are refused; at most 5 files and 4 MB in total). All values
+are escaped in the email.
+
+If the mail variables are missing on Vercel, the form says "The form isn't set up yet" and offers
+WhatsApp, so nobody thinks their details were sent. Locally (`npm run dev`, which serves `/api/*` through
+`vite.config.ts`), missing mail variables put the API in DEV MODE: the brief is printed in the terminal, an
+HTML preview of the email is written to the system temp folder, and the success screen shows
+"DEV MODE: not emailed".
